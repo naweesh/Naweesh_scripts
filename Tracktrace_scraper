@@ -1,0 +1,64 @@
+#$ErrorActionPreference = "SilentlyContinue"
+$max = $host.UI.RawUI.MaxPhysicalWindowSize
+$host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(9999,9999)
+#$host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size($max.Width,$max.Height)
+
+$inputFile = "M:\Information Technology\1. Help Desk\25. Freight Master\Manifest File Area\merged"
+## created by naweesh rao
+$header = "ConID", "ConsignmentNumber", "Cancelled", "AccountNumber", "UserCode", "ServiceCode", "ReceiverCompanyName", "ReceiverContactName", "ReceiverAddressLine", "ReceiverAddressLine2", "ReceiverAddressLine3", "CubicVolume", "ReceiverSuburb", "ReceiverPostCode", "Receiveremailaddress", "ReceiverBusinessTelNo", "ReceiverBusinessFAX", "ReceiverMobile", "Zone", "Sticker", "FromZone", "FromPort", "Length", "Width", "Height", "CubicWeight", "DeadWeight", "TransitWarrantyParcelProtectionCode", "TransitWarrantyParcelProtectionInsuredValue", "TransitWarrantyParcelProtectionInsuranceCharge", "BasicCharge", "KiloCharge", "TotalCharge", "PaymentTermsCode", "Description", "DeliveryLines", "Ref1", "Ref2", "NumberofArticles", "ArticleList", "GST", "TotalIncludingGST", "ReturnCon", "AssociatedConID", "SenderCompany", "SenderAddressLine1", "SenderAddressLine2", "SenderAddressLine3", "SenderSuburb", "SenderPostcode", "InvoiceList", "ReprintCount", "ReasonforReturn", "ReturnInfo", "ATLNumber", "Blank","Removethis"
+$mfileobjects = Import-Csv $inputFile -header $header
+
+$counter = 0
+ForEach ( $mfileobject in $mfileobjects ) {
+$counter += 1
+
+
+#####
+#the continue statement causes program flow to move immediately to the top of the innermost loop
+# this skips the first line which is the M file header
+if ($counter -eq 1)
+    { continue}
+
+
+$connoteentry= $mfileobject.ConsignmentNumber
+
+    
+if ($mfileobject.AccountNumber -match "5839400")
+    {
+
+$Request = Invoke-WebRequest -Uri https://www.startrack.com.au/track-trace/?id=$connoteentry
+$w = $Request.ParsedHtml.getElementsByTagName("td") | select outertext
+$script:b = $null
+
+         for ( $i = ($w.count); $i -gt 0; $i -= 4 )
+         {
+         if ($w[$i].outertext -match $connoteentry) {break}
+            $script:b += ($w[$i].outertext);
+         }
+
+         Write-Output "$counter, $connoteentry,$script:b"
+
+    }
+else 
+    {
+    $articlestring = $null
+## this module web scrapes the article listing of air consignments 
+
+#get consignment guid by consignment number
+#http://sttrackandtrace.startrack.com.au/Consignment/GetConsignmentsBySearchCriteriaShort/WJ609529?t=1446553540
+$getguid = Invoke-RestMethod https://cctrackandtrace.aae.com.au/Consignment/GetConsignmentsBySearchCriteriaShort/$connoteentry`?t=1446680088 -UseDefaultCredentials
+$arrguid = $getguid -split ' '
+$articleguid = $arrguid[0] 
+#get articles by consignment guid
+#http://sttrackandtrace.startrack.com.au/Consignment/GetArticlesByConsignmentGUID/c86c8ded-3149-414c-9529-c658d7d15bc0?t=1446553540
+$getarticle = Invoke-RestMethod https://cctrackandtrace.aae.com.au/Consignment/GetArticlesByConsignmentGUID/$articleguid`?t=1446680088 -UseDefaultCredentials
+$countart = $getarticle.Count
+$articlestring = [String]::Join(' ', $getarticle.ArticleNumber);
+
+
+Write-Output "$counter, $connoteentry,$articlestring"
+
+    }
+
+} 
+
