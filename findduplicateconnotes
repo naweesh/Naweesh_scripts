@@ -1,0 +1,47 @@
+$ErrorActionPreference = "SilentlyContinue"
+$inputFile = "M:\Information Technology\1. Help Desk\25. Freight Master\Manifest File Area\Old_dated_files\58548\M1206058548.02121"
+## created by naweesh rao
+$header = "ConID", "ConsignmentNumber", "Cancelled", "AccountNumber", "UserCode", "ServiceCode", "ReceiverCompanyName", "ReceiverContactName", "ReceiverAddressLine", "ReceiverAddressLine2", "ReceiverAddressLine3", "CubicVolume", "ReceiverSuburb", "ReceiverPostCode", "Receiveremailaddress", "ReceiverBusinessTelNo", "ReceiverBusinessFAX", "ReceiverMobile", "Zone", "Sticker", "FromZone", "FromPort", "Length", "Width", "Height", "CubicWeight", "DeadWeight", "TransitWarrantyParcelProtectionCode", "TransitWarrantyParcelProtectionInsuredValue", "TransitWarrantyParcelProtectionInsuranceCharge", "BasicCharge", "KiloCharge", "TotalCharge", "PaymentTermsCode", "Description", "DeliveryLines", "Ref1", "Ref2", "NumberofArticles", "ArticleList", "GST", "TotalIncludingGST", "ReturnCon", "AssociatedConID", "SenderCompany", "SenderAddressLine1", "SenderAddressLine2", "SenderAddressLine3", "SenderSuburb", "SenderPostcode", "InvoiceList", "ReprintCount", "ReasonforReturn", "ReturnInfo", "ATLNumber", "Blank"
+$mfileobjects = Import-Csv $inputFile -header $header
+
+
+ForEach ( $mfileobject in $mfileobjects ) {
+
+$count += 1
+$strconnotenum = $null
+$ratable = $null
+
+## Open the MTS - SQL server connection here
+$serverName = “aaeprdfrmsq.extad.aae.com.au”
+$databaseName = “yb”
+$uid = "FMHelpdesk"
+$pwd = "1fmhelpdesk5"
+##open connection here, i have put close connection at the bottom of the major loop
+$connectionstring = "Server=$serverName;uid=$uid; pwd=$pwd;Database=$databaseName;Integrated Security=false;"
+$connection = New-Object system.data.sqlclient.sqlconnection
+$connection.connectionstring = $connectionstring
+$connection.open()
+
+$connotetoquery = $mfileobject.ConsignmentNumber
+
+$query="Exec spFMHelpDesk_CheckConnote $connotetoquery"   
+$command = $connection.CreateCommand()
+$command.CommandText = $query
+$result=$command.ExecuteReader()
+$ratable = New-Object System.Data.DataTable
+$ratable.load($result)
+$ratable | foreach-object {
+         $strconnotenum = $_.connotenum
+         $strmanifestdate = $_.manifestdate
+         $rcvrpostcode = $_.rcvrPostcode
+         $rcvrsuburb = $_.rcvrSuburb
+         $returns = $_.returns
+                             }
+
+if ($strconnotenum -ne $null){
+                           # write-host $strconnotenum
+		        write-host "$strconnotenum"
+                             }
+$connection.close()
+
+}
