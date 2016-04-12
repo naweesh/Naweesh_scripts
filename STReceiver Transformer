@@ -1,0 +1,388 @@
+function GenerateForm {
+
+  <#
+    .DESCRIPTION
+        STReceiver Transformer.
+    .EXAMPLE
+    Enter an username in the username box. Example username: HELP
+    .NOTES
+    This script loads up the Receiver List for clients on sql-1 database 
+    for the www2.startrackexpress.com.au site using the ADO .net classes.
+    It then manipulates the datatable and outputs as files that can be imported
+    onto the Despatcher v6.1 and MyStarTrack v2 thick clients for creating StarTrack
+    freight labels, so essentially users can transfer their client listings.
+        Author: Naweesh Rao
+        Created On: 12/9/2014 
+  #>
+ 
+ 
+#region Import the Assemblies
+[reflection.assembly]::loadwithpartialname("System.Drawing") | Out-Null
+[reflection.assembly]::loadwithpartialname("System.Windows.Forms") | Out-Null
+#endregion
+ 
+#region Generated Form Objects
+$TransformerForm = New-Object System.Windows.Forms.Form
+$TransformButton = New-Object System.Windows.Forms.Button
+$MSTRadioButton = New-Object System.Windows.Forms.RadioButton
+$BothRadioButton = New-Object System.Windows.Forms.RadioButton
+$LogoPicture = New-Object System.Windows.Forms.PictureBox
+$GridViewBox = New-Object System.Windows.Forms.DataGridView
+$CreditLabel = New-Object System.Windows.Forms.Label
+$UsernameBox = New-Object System.Windows.Forms.TextBox
+$label1 = New-Object System.Windows.Forms.Label
+$LoadButton = New-Object System.Windows.Forms.Button
+$InitialFormWindowState = New-Object System.Windows.Forms.FormWindowState
+#endregion Generated Form Objects
+ 
+ 
+ 
+ 
+#----------------------------------------------
+#Generated Event Script Blocks
+#----------------------------------------------
+
+$handler_textBox1_TextChanged= 
+{
+$custusername= $UsernameBox.Text
+if ($UsernameBox.Text.Length -ge 4)
+                {
+                                $LoadButton.Enabled = $true
+                }
+                else
+                {
+                                $LoadButton.Enabled = $false
+                }
+ 
+ 
+}
+ 
+$handler_form1_Load= 
+{
+ 
+ 
+$TransformButton.Enabled = $false
+$LoadButton.Enabled = $false
+ 
+ 
+ 
+    
+ 
+}
+ 
+$handler_label2_Click= 
+{
+#TODO: Place custom script here
+ 
+}
+ 
+$TransformButton_OnClick= 
+{
+    #modifying .net ADO datatable by using Datacolumn object
+    $aflag =  new-object Data.DataColumn
+    $sevenflag =  new-object Data.DataColumn
+    $Address3 =  new-object Data.DataColumn
+    $State =  new-object Data.DataColumn
+    $null3 =  new-object Data.DataColumn
+ 
+    $aflag.ColumnName = "aflag"
+    $sevenflag.ColumnName = "sevenflag"
+    $Address3.ColumnName = "Address3"
+    $State.ColumnName = "State"
+    $null3.ColumnName = "null3"
+ 
+    $www2table.Columns.Add($sevenflag)
+    $www2table.Columns.Add($aflag)
+    $www2table.Columns.Add($Address3)
+    $www2table.Columns.Add($State)
+    $www2table.Columns.Add($null3)
+
+#folderbrowserdialog
+# refer to http://www.powershellmagazine.com/2013/06/28/pstip-using-the-system-windows-forms-folderbrowserdialog-class/
+
+Add-Type -AssemblyName System.Windows.Forms
+$FolderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{
+    SelectedPath = 'C:\’
+}
+[void]$FolderBrowser.ShowDialog()
+$FolderBrowser.SelectedPath
+
+set-location $FolderBrowser.SelectedPath
+    if ($BothRadioButton.Checked = $True)  
+                                {
+                                    $www2table | foreach-object {
+                                                                    $_.sevenflag = "7"
+                                                                    $_.aflag = "A"
+                                                                }
+ 
+                                    $www2table | select-object Index,ReceiverName1, ReceiverName2, ReceiverAddr1, ReceiverAddr2, Address3, ReceiverLocation, State, ReceiverPCode, ReceiverPhone, null3, ReceiverEmail  | ConvertTo-Csv  -NoTypeInformation  | ForEach-Object { $_ -replace '"', ""} | Select -Skip 1 | Out-File MyStarTrack_$custusername$(get-date -f yyyyMMddHHmm)".csv" -force –encoding ascii
+                                    $www2table | select-object sevenflag, aflag, Index,ReceiverName1, ReceiverName2, ReceiverAddr1, ReceiverAddr2, Address3, ReceiverLocation, State, ReceiverPCode, ReceiverPhone, null3, ReceiverEmail | ConvertTo-Csv -NoTypeInformation  | ForEach-Object { $_ -replace '"', ""} | Select -Skip 1 | Out-File DespV61_$custusername$(get-date -f yyyyMMddHHmm)".rpd"  -force –encoding ascii
+                                }
+    else                        
+                                {
+                                    $www2table | select-object Index,ReceiverName1, ReceiverName2, ReceiverAddr1, ReceiverAddr2, Address3, ReceiverLocation, State, ReceiverPCode, ReceiverPhone, null3, ReceiverEmail | ConvertTo-Csv -NoTypeInformation  | ForEach-Object { $_ -replace '"', ""} | Select -Skip 1 | Out-File MyStarTrack_$custusername$(get-date -f yyyyMMddHHmm)".csv" -force –encoding ascii
+                                }
+ 
+#empty variable so program is reusable
+#Clear-Variable $www2table
+#Clear-Variable $result
+ 
+}
+ 
+$handler_label1_Click= 
+{
+#TODO: Place custom script here
+ 
+}
+ 
+$handler_button1_Click= 
+{
+    $TransformButton.Enabled = $true
+    $bindingSource1 = new-object System.Windows.Forms.BindingSource
+    
+    
+    
+   
+ 
+ 
+ 
+    $serverName = “sql-1”
+    $databaseName = “WebDespatch”
+    $connectionstring = "Server=$serverName;Database=$databaseName;Integrated Security=True;"
+    $connection = New-Object system.data.sqlclient.sqlconnection
+    $connection.connectionstring = $connectionstring
+    $connection.open()
+ 
+    
+    $query="select ReceiverName1 as 'Index', ReceiverName1, ReceiverName2, ReceiverAddr1, ReceiverAddr2, ReceiverLocation, ReceiverPCode, ReceiverPhone, ReceiverEmail from Despreceivers where username='$custusername'"
+ 
+ 
+ 
+ 
+    $GridViewBox.AutoResizeColumns([System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::AllCellsExceptHeader)
+ 
+    $GridViewBox.DataSource = $bindingSource1
+    
+    
+    $command = $connection.CreateCommand()
+    $command.CommandText = $query
+    $result=$command.ExecuteReader()
+    
+    $www2table = New-Object System.Data.DataTable
+<#
+ $www2table = @{Expression={$_.ReceiverName1};Label=“Name1"}, `
+@{Expression={$_.ReceiverName2};Label=“Name2"}, `
+
+@{Expression={$_.ReceiverAddr1};Label=“Address1"}, `
+@{Expression={$_.ReceiverAddr2};Label=“Address2"}, `
+@{Expression={$_.ReceiverLocation};Label=“Suburb"}, `
+@{Expression={$_.ReceiverPCode};Label=“Postcode"}, `
+@{Expression={$_.ReceiverPhone};Label=“Phone"}, `
+@{Expression={$_.ReceiverEmail};Label=“Email”}
+#>
+    $www2table.load($result)
+ 
+    $bindingSource1.DataSource = $www2table
+ 
+    $GridViewBox.AutoResizeColumns([System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::AllCellsExceptHeader)
+    #$dataGridView1.Columns["MyColumn"].Visible = $False
+ 
+    $connection.close()
+ 
+}
+ 
+$OnLoadForm_StateCorrection=
+{#Correct the initial state of the form to prevent the .Net maximized form issue
+                $TransformerForm.WindowState = $InitialFormWindowState
+}
+ 
+#----------------------------------------------
+#region Generated Form Code
+$TransformerForm.BackgroundImageLayout = 0
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 473
+$System_Drawing_Size.Width = 663
+$TransformerForm.ClientSize = $System_Drawing_Size
+$TransformerForm.DataBindings.DefaultDataSourceUpdateMode = 0
+$TransformerForm.MaximizeBox = $False
+$TransformerForm.Name = "TransformerForm"
+$TransformerForm.ShowIcon = $False
+$TransformerForm.Text = "STReceiver Transformer"
+$TransformerForm.add_Load($handler_form1_Load)
+ 
+ 
+$TransformButton.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 486
+$System_Drawing_Point.Y = 12
+$TransformButton.Location = $System_Drawing_Point
+$TransformButton.Name = "TransformButton"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 47
+$System_Drawing_Size.Width = 157
+$TransformButton.Size = $System_Drawing_Size
+$TransformButton.TabIndex = 11
+$TransformButton.Text = "Transform"
+$TransformButton.UseVisualStyleBackColor = $True
+$TransformButton.add_Click($TransformButton_OnClick)
+ 
+$TransformerForm.Controls.Add($TransformButton)
+ 
+ 
+$MSTRadioButton.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 216
+$System_Drawing_Point.Y = 38
+$MSTRadioButton.Location = $System_Drawing_Point
+$MSTRadioButton.Name = "MSTRadioButton"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 21
+$System_Drawing_Size.Width = 92
+$MSTRadioButton.Size = $System_Drawing_Size
+$MSTRadioButton.TabIndex = 10
+$MSTRadioButton.Text = "MST"
+$MSTRadioButton.UseVisualStyleBackColor = $True
+ 
+$TransformerForm.Controls.Add($MSTRadioButton)
+ 
+ 
+$BothRadioButton.Checked = $True
+$BothRadioButton.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 107
+$System_Drawing_Point.Y = 36
+$BothRadioButton.Location = $System_Drawing_Point
+$BothRadioButton.Name = "BothRadioButton"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 24
+$System_Drawing_Size.Width = 103
+$BothRadioButton.Size = $System_Drawing_Size
+$BothRadioButton.TabIndex = 9
+$BothRadioButton.TabStop = $True
+$BothRadioButton.Text = "MST and V6.1"
+$BothRadioButton.UseVisualStyleBackColor = $True
+ 
+$TransformerForm.Controls.Add($BothRadioButton)
+ 
+ 
+$LogoPicture.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$LogoPicture.Image = [System.Drawing.Image]::FromFile('c:\STReceiver\STlogo.gif')
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 526
+$System_Drawing_Point.Y = 445
+$LogoPicture.Location = $System_Drawing_Point
+$LogoPicture.Name = "LogoPicture"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 28
+$System_Drawing_Size.Width = 117
+$LogoPicture.Size = $System_Drawing_Size
+$LogoPicture.TabIndex = 8
+$LogoPicture.TabStop = $False
+ 
+$TransformerForm.Controls.Add($LogoPicture)
+ 
+$GridViewBox.AllowUserToAddRows = $False
+$GridViewBox.AllowUserToDeleteRows = $False
+$GridViewBox.DataBindings.DefaultDataSourceUpdateMode = 0
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 13
+$System_Drawing_Point.Y = 65
+$GridViewBox.Location = $System_Drawing_Point
+$GridViewBox.Name = "GridViewBox"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 374
+$System_Drawing_Size.Width = 630
+$GridViewBox.Size = $System_Drawing_Size
+$GridViewBox.TabIndex = 7
+ 
+$TransformerForm.Controls.Add($GridViewBox)
+ 
+$CreditLabel.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 11
+$System_Drawing_Point.Y = 446
+$CreditLabel.Location = $System_Drawing_Point
+$CreditLabel.Name = "CreditLabel"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 27
+$System_Drawing_Size.Width = 168
+$CreditLabel.Size = $System_Drawing_Size
+$CreditLabel.TabIndex = 2
+$CreditLabel.Text = "Created By Naweesh Rao 2014"
+$CreditLabel.add_Click($handler_label2_Click)
+ 
+$TransformerForm.Controls.Add($CreditLabel)
+ 
+$UsernameBox.DataBindings.DefaultDataSourceUpdateMode = 0
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 77
+$System_Drawing_Point.Y = 12
+$UsernameBox.Location = $System_Drawing_Point
+$UsernameBox.MaxLength = 30
+$UsernameBox.Name = "UsernameBox"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 20
+$System_Drawing_Size.Width = 211
+$UsernameBox.Size = $System_Drawing_Size
+$UsernameBox.TabIndex = 3
+$UsernameBox.add_TextChanged($handler_textBox1_TextChanged)
+ 
+$TransformerForm.Controls.Add($UsernameBox)
+ 
+$label1.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 11
+$System_Drawing_Point.Y = 12
+$label1.Location = $System_Drawing_Point
+$label1.Name = "label1"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 31
+$System_Drawing_Size.Width = 62
+$label1.Size = $System_Drawing_Size
+$label1.TabIndex = 1
+$label1.Text = "Username"
+$label1.add_Click($handler_label1_Click)
+ 
+$TransformerForm.Controls.Add($label1)
+ 
+ 
+$LoadButton.DataBindings.DefaultDataSourceUpdateMode = 0
+ 
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 316
+$System_Drawing_Point.Y = 12
+$LoadButton.Location = $System_Drawing_Point
+$LoadButton.Name = "LoadButton"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 47
+$System_Drawing_Size.Width = 157
+$LoadButton.Size = $System_Drawing_Size
+$LoadButton.TabIndex = 0
+$LoadButton.Text = "Load"
+$LoadButton.UseVisualStyleBackColor = $True
+$LoadButton.add_Click($handler_button1_Click)
+ 
+$TransformerForm.Controls.Add($LoadButton)
+ 
+#endregion Generated Form Code
+ 
+#Save the initial state of the form
+$InitialFormWindowState = $TransformerForm.WindowState
+#Init the OnLoad event to correct the initial state of the form
+$TransformerForm.add_Load($OnLoadForm_StateCorrection)
+#Show the Form
+$TransformerForm.ShowDialog()| Out-Null
+ 
+} #End Function
+ 
+#Call the Function
+GenerateForm
+ 
+ 
