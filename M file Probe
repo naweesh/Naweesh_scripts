@@ -1,0 +1,858 @@
+#Form Function
+function GenerateForm {
+########################################################################
+# 
+# Application Name: M file Probe
+# Creation Date: 4/30/2015
+# Created By: Naweesh Rao
+# Updated on 06/05/2015 for version 0.03
+# Updated on 19/05/2015 for version 0.05
+# This version added the MTS functions that use an SQL adaptor
+# added the functions on the $scripts scope to return function variables
+# v0.05 has fixed some bugs up
+#
+########################################################################
+
+#region Import the Assemblies
+[reflection.assembly]::loadwithpartialname("System.Windows.Forms") | Out-Null
+[reflection.assembly]::loadwithpartialname("System.Drawing") | Out-Null
+#endregion
+
+#region Generated Form Objects
+$ProbeForm = New-Object System.Windows.Forms.Form
+$OutputTextBox = New-Object System.Windows.Forms.TextBox
+$ProbeButton = New-Object System.Windows.Forms.Button
+$LogoPicture = New-Object System.Windows.Forms.PictureBox
+$CreditLabel = New-Object System.Windows.Forms.Label
+$FilenameBox = New-Object System.Windows.Forms.TextBox
+$FilenameLabel = New-Object System.Windows.Forms.Label
+$progressBar1 = New-Object System.Windows.Forms.ProgressBar
+$LoadButton = New-Object System.Windows.Forms.Button
+$InitialFormWindowState = New-Object System.Windows.Forms.FormWindowState
+#endregion Generated Form Objects
+
+#----------------------------------------------
+#Generated Event Script Blocks
+#----------------------------------------------
+#Provide Custom Code for events specified in PrimalForms.
+$ProbeButton_OnClick= 
+{
+$ProbeButton.Enabled = $false
+$LoadButton.Enabled = $false
+<#
+# When pressing the button Probe
+## Open the MTS - SQL server connection here
+$serverName = “aaeprdfrmsq.extad.aae.com.au”
+$databaseName = “yb”
+$uid = "FMHelpdesk"
+$pwd = "1fmhelpdesk5"
+##open connection here, i have put close connection at the bottom of the major loop
+$connectionstring = "Server=$serverName;uid=$uid; pwd=$pwd;Database=$databaseName;Integrated Security=false;"
+$connection = New-Object system.data.sqlclient.sqlconnection
+$connection.connectionstring = $connectionstring
+$connection.open()
+#>
+
+
+# i have put an copy of this code at the beginning of the probe button handler event
+$serverName = “aaeprdfrmsq.extad.aae.com.au”
+$databaseName = “yb”
+$uid = "FMHelpdesk"
+$pwd = "1fmhelpdesk5"
+##open connection here, i have put close connection at the bottom of the major loop
+$connectionstring = "Server=$serverName;uid=$uid; pwd=$pwd;Database=$databaseName;Integrated Security=false;"
+$connection = New-Object system.data.sqlclient.sqlconnection
+$connection.connectionstring = $connectionstring
+$connection.open()
+
+
+function QueryConnoteNum
+{
+param([string]$connotenumbersearch)
+$query="Exec spFMHelpDesk_CheckConnote '$connotenumbersearch'"   
+$command = $connection.CreateCommand()
+$command.CommandText = $query
+$result=$command.ExecuteReader()
+$ratable = New-Object System.Data.DataTable
+$ratable.load($result)
+#$connection.close()
+$ratable | foreach-object {
+         $script:strconnotenum = $_.connotenum
+         $script:strmanifestdate = $_.manifestdate
+         $script:rcvrpostcode = $_.rcvrPostcode
+         $script:rcvrsuburb = $_.rcvrSuburb
+         $script:returns = $_.returns
+                             }
+}
+
+function QueryCIDManifestRef
+{
+param([int]$cidtest,[int]$manifestreftest)
+$query="Exec spFMHelpDesk_CheckManifest $cidtest, $manifestreftest" 
+$command = $connection.CreateCommand()
+$command.CommandText = $query
+$result=$command.ExecuteReader() 
+$ratable = New-Object System.Data.DataTable
+$ratable.load($result)
+$connection.close()
+$ratable | foreach-object {
+                      $script:strcid = $_.cid
+                      $script:strmanifestref = $_.manifestref
+                             }
+}
+
+function QueryCID
+{
+param([int]$cidtest)
+$query="Exec spFMHelpDesk_GetCID '$cidtest'" 
+$command = $connection.CreateCommand()
+$command.CommandText = $query
+$result=$command.ExecuteReader() 
+$ratable = New-Object System.Data.DataTable
+$ratable.load($result)
+#$connection.close()
+$ratable | foreach-object {
+                        $script:strcidcid = $_.cid
+                          }
+}
+
+function QueryArticle
+{
+param([string]$articlenumber)
+$query="Exec spFMHelpDesk_CheckArticle '$articlenumber'" 
+$command = $connection.CreateCommand()
+$command.CommandText = $query
+$result=$command.ExecuteReader() 
+$ratable = New-Object System.Data.DataTable
+$ratable.load($result)
+#$connection.close()
+$ratable | foreach-object {
+                            $script:strarticle = $_.articlenum
+                          }
+}
+
+$script:datefourmonthsago = (get-date).AddMonths(-4).ToString("yyyy-MM-dd HH:mm:ss")
+
+$header = "ConID", "ConsignmentNumber", "Cancelled", "AccountNumber", "UserCode", "ServiceCode", "ReceiverCompanyName", "ReceiverContactName", "ReceiverAddressLine", "ReceiverAddressLine2", "ReceiverAddressLine3", "CubicVolume", "ReceiverSuburb", "ReceiverPostCode", "Receiveremailaddress", "ReceiverBusinessTelNo", "ReceiverBusinessFAX", "ReceiverMobile", "Zone", "Sticker", "FromZone", "FromPort", "Length", "Width", "Height", "CubicWeight", "DeadWeight", "TransitWarrantyParcelProtectionCode", "TransitWarrantyParcelProtectionInsuredValue", "TransitWarrantyParcelProtectionInsuranceCharge", "BasicCharge", "KiloCharge", "TotalCharge", "PaymentTermsCode", "Description", "DeliveryLines", "Ref1", "Ref2", "NumberofArticles", "ArticleList", "GST", "TotalIncludingGST", "ReturnCon", "AssociatedConID", "SenderCompany", "SenderAddressLine1", "SenderAddressLine2", "SenderAddressLine3", "SenderSuburb", "SenderPostcode", "InvoiceList", "ReprintCount", "ReasonforReturn", "ReturnInfo", "ATLNumber", "Blank"
+$mfileobjects = Import-Csv $inputFile -header $header
+#$mfileobjects = Import-Csv C:\Mfiles\M0401074580.88161 -header $header
+
+$mfileobjectcrossrefs = $mfileobjects
+
+$count=0
+$duplicateds = 0
+$Articlelisttotals = 0
+
+
+
+
+$postcodeheader = "Postcode", "Suburb", "Zone", "PrimaryPort", "SecondaryPort", "CountryFlag", "State"
+$postcodefile = "C:\Mfiles\Postcode_0004.csv"
+$postcodeobjects = Import-Csv $postcodefile -header $postcodeheader
+$outputtextbox.AppendText("`r`n `r`nM file Probe is Starting`r`n")
+$outputtextbox.AppendText("Initiating check on $initiatetext`r`n `r`n")
+
+ForEach ( $mfileobject in $mfileobjects ) {
+$count += 1
+
+
+$suburbfound=0
+$zonefound = 0
+$stickerfound = 0
+$fromportfound = 0
+$fromzonefound = 0
+$senderpostcodefound = 0
+
+#####
+#the continue statement causes program flow to move immediately to the top of the innermost loop
+# this skips the first line which is the M file header
+if ($count -eq 1)
+    { continue}
+
+
+## ConsignmentNumber checking
+$regexconsignmentnumber = "^[a-zA-Z]{1}\w{0,3}\d{5,11}$"
+    if ($mfileobject.ConsignmentNumber -match $regexconsignmentnumber) 
+        { 
+            QueryConnoteNum $mfileobject.ConsignmentNumber
+                if ($mfileobject.ConsignmentNumber -match $strconnotenum)
+                    { 
+                            if($rcvrpostcode -eq $mfileobject.ReceiverPostCode -AND $rcvrsuburb -eq $mfileobject.ReceiverSuburb -AND $returns -eq "0" -AND $strmanifestdate -gt $datefourmonthsago)
+                            {$outputtextbox.AppendText("row: $count col: 2 - Error in Consignment Number field, connote is duplicated in MTS`r`n")}
+                            else {}
+                    }
+                #else{ $outputtextbox.AppendText("test QueryConnotenum`r`n")
+ 
+        }
+        
+        
+## check if connote exists in other rows
+$howmanymulticons = 0
+$multicons = Select-String -Pattern ($mfileobject.ConsignmentNumber) -Path $inputFile -AllMatches
+$howmanymulticons = $multicons.count
+if ($howmanymulticons -gt 1) 
+        {$outputtextbox.AppendText("row: $count col: 2 - Error in Consignment Number field, connote is duplicated in another row`r`n")}
+        else {}        
+<# in MTS - allow duplicates in the system. A genuine duplicate is declared if: 
+Connote number = connote number
+Manifest date within 4 months
+Receiver postcode = Receiver postcode
+Receiver suburb = Receiver suburb
+Not a Returns account
+
+                 Write-Host $strconnotenum
+                             Write-Host $strmanifestref
+                             Write-Host $rcvrpostcode
+                             Write-Host $rcvrsuburb
+                             Write-Host $returns
+                             #need to add the date in.
+#>
+# get date on computer by: Get-Date -Format "yyyyMMdd HH:mm:ss"  
+ # $datefourmonthsago = (get-date).AddMonths(-4).ToString("yyyyMMdd HH:mm:ss") 
+    
+   
+
+    else {$outputtextbox.AppendText("row: $count col: 2 - Error in Consignment Number field, connote is not in correct format`r`n")}
+
+## ConsignmentNumber duplicated in the file check
+
+                $connotecrossref = $mfileobject.ConsignmentNumber
+            ForEach ( $mfileobjectcrossref in $mfileobjectcrossrefs )
+                    {
+                        if ($connotecrossref -match $mfileobjectcrossref.ConsignmentNumber)
+                            {$duplicateds += 1  }                          
+                    }
+                    if ($duplicateds -gt 1)
+                        {
+                            $outputtextbox.AppendText("row: $count col: 2 - Duplicated connote listed in file`r`n")
+                        }
+                        else { }
+                        $duplicateds = 0
+<#
+## Cancelled
+$regexcancelled = "^[a-zA-Z]{1}\w{0,2}\d{5}"
+#$regexconsignmentnumber = ".{1,}"
+    if ($mfileobject.Cancelled -match ( `#TRUE# )) 
+        { $append_error = "none"} 
+    else {$append_error = "Error in Cancelled field"}
+    Write-Host $count is having problem $append_error
+    #>
+
+    if ($mfileobject.Cancelled -like "*TRUE*")
+        {$outputtextbox.AppendText("row: $count col: 3 - Connote is set to deleted - remove row`r`n")}
+
+## AccountNumber
+$regexaccountno = "^\d{7,8}$"
+    if ($mfileobject.AccountNumber -match $regexaccountno) 
+        {} 
+    else {
+    $outputtextbox.AppendText("row: $count col: 4 - Error in Account Number field`r`n")}
+
+## ServiceCode
+$regexservicecode = "^[QSKAEqskaeLONPYUJlonpyuj]$"
+    if ($mfileobject.ServiceCode -match $regexservicecode) 
+        { } 
+    else {$outputtextbox.AppendText("row: $count col: 6 - Error in Service Code field`r`n")}
+    
+## if service type is A and the article count is greater than one than service should be O 
+    if ($mfileobject.ServiceCode -match "^[Aa]$" -AND $mfileobject.NumberofArticles -gt 1)
+         {$outputtextbox.AppendText("row: $count col: 6 - Error in Service Code field, Service should be O for Overnight`r`n")}
+         else { }
+    
+
+## ReceiverCompanyName
+#$mfileobject.ReceiverCompanyName= $lenReceiverCompanyName
+#    if ($lenReceiverCompanyName.length -gt 40) 
+#        {$append_error = "none"}
+#    else  { $append_error = "Error in Receiver Company 1 field"}    
+#    Write-Host $count is having problem $append_error
+
+## ReceiverAddressLine
+#$mfileobject.ReceiverAddressLine= $lenReceiverAddressLine
+#    if ($lenReceiverAddressLine.length -gt 30) 
+#        {$append_error = "none"}
+#    else  { $append_error = "Error in Receiver Company 1 field"}    
+#    Write-Host $count is having problem $append_error
+
+
+## ReceiverSuburb", "ReceiverPostCode
+
+$mpostcodepattern = Select-String -Pattern ($mfileobject.ReceiverSuburb) -Path $postcodefile -AllMatches | Select-String -Pattern ($mfileobject.ReceiverPostCode) -List | Select-Object -First 1
+
+$splitpostsuburbss = $mpostcodepattern.Line.split(',')
+
+## Checks if Suburb is found.
+#$tpostcode = $splitpostsuburbss[0].Trim()
+$tpostsuburbss = $splitpostsuburbss[1]
+$tzone = $splitpostsuburbss[2]
+$tsticker = $splitpostsuburbss[3]
+
+$qreceiversuburb = $mfileobject.ReceiverSuburb
+$qreceiverzone = $mfileobject.zone
+$qsticker = $mfileobject.Sticker
+## if Receiver Suburb is found then we will match the zone and sticker
+if ($splitpostsuburbss[1] -match $mfileobject.ReceiverSuburb -AND $splitpostsuburbss[0].Trim() -match $mfileobject.ReceiverPostCode)
+    {
+        if($splitpostsuburbss[2] -match $mfileobject.Zone)
+            { write-host "match zone $tzone from $qreceiverzone" }
+            else {  $outputtextbox.AppendText("row: $count col: 19 Error in Receiver Zone field, correct value is $tzone`r`n")}
+            
+        if($splitpostsuburbss[3] -match $mfileobject.PrimaryPort)
+            { write-host "match sticker $tsticker from $qsticker"}
+            else {  $outputtextbox.AppendText("row: $count col: 20 Error in From Sticker field, correct value is $tsticker`r`n")}
+    write-host "match $tpostsuburbss in $qreceiversuburb" 
+    }
+    else { $outputtextbox.AppendText("row: $count col: 13 Error in Receiver Suburb field and Postcode col: 14`r`n") }
+
+
+
+
+## if Sender Suburb is found then we will match the FromZone and FromPort
+$msendersuburbmatch = Select-String -Pattern ($mfileobject.SenderSuburb) -Path $postcodefile -AllMatches | Select-String -Pattern ($mfileobject.SenderPostcode) -List | Select-Object -First 1
+
+$splitsender = $msendersuburbmatch.Line.split(',')
+
+## Checks if Suburb is found.
+$tsendpostcode = $splitsender[0].Trim()
+$tsendsuburbss = $splitsender[1]
+$tsendzone = $splitsender[2]
+$tsendport = $splitsender[3]
+
+$qsendersuburb = $mfileobject.SenderSuburb
+$qsendzone = $mfileobject.FromZone
+$qfromport = $mfileobject.FromPort
+## if Receiver Suburb is found then we will match the zone and sticker
+if ($splitsender[1] -match $mfileobject.SenderSuburb)
+    {
+        if($splitsender[2] -match $mfileobject.FromZone)
+            { write-host "sendmatch zone $tsendzone from $qsendzone" }
+            else { $outputtextbox.AppendText("row: $count col: 21 Error in Sticker field, correct value is $tsendzone`r`n") }
+            
+        if($splitsender[3] -match $mfileobject.FromPort)
+            { write-host "sendmatch sticker $tsendport from $qfromport"}
+            else { $outputtextbox.AppendText("row: $count col: 22 Error in From Port field, correct value is $tsendport`r`n")}
+    #write-host "sendmatch $tsendsuburbss in $qsendersuburb" 
+    }
+    else { $outputtextbox.AppendText("row: $count col: 49 Error in Sender Suburb field and Postcode col: 50`r`n") }
+
+
+    
+
+
+
+## Number of Articles
+#$mfileobject.articlelist.split(" ")
+<#
+$numberarticles = $mfileobject.ArticleList
+$Articlelistnumbs = $numberarticles | Measure-Object -Word | Select-Object -ExpandProperty words
+#>
+$whatarticles = $mfileobject.ArticleList
+$what2articles = $whatarticles.split("",[System.StringSplitOptions]::RemoveEmptyEntries)
+
+$Articlelistnumbs = $what2articles.count
+
+
+if ($articlelistnumbs -eq $mfileobject.NumberofArticles)
+     {} 
+    else {$outputtextbox.AppendText("row: $count col: 39 - Error in Number of Articles field, Article list should be $Articlelistnumbs`r`n")}
+## article sum
+$Articlelisttotals += $Articlelistnumbs
+
+
+
+
+<#
+## Number of duplicated Articles in the given article field
+$emptyspace = ' '
+$resultdupart = 0..($numberarticles.length - 1) | Where-Object {$numberarticles[$_] -eq $emptyspace}
+
+if ( $resultdupart.count -gt 1)
+    {$outputtextbox.AppendText("row: $count col: 24 - Articles listed in the Article list field is $resultdupart`r`n")}
+#>
+
+## checking duplicated articles in listed article field
+#Clear-Variable $articledups
+$dupcount = 0
+
+# duplicated articles in the the article list field.
+#write-host $numberarticles.split(" ",[StringSplitOptions]'RemoveEmptyEntries')
+    $split2 = $numberarticles.split(" ",[System.StringSplitOptions]::RemoveEmptyEntries)
+    for ( $i = 0; $i -lt $Articlelistnumbs; $i++ ) 
+        {
+            ## duplicated articles in the article list field
+            $selection = ($numberarticles | select-string $split2[$i] -AllMatches)
+            $selection.Matches.Count
+            if ($selection.Matches.Count -gt 1) {$outputtextbox.AppendText("row: $count col: 40, multiple duplicate article in article listing field`r`n")}
+
+            ## duplicated article found in other rows
+            ## check if connote exists in other rows
+            $howmanymultiarts = 0
+            $multiarts = Select-String -Pattern ($split2[$i]) -Path $inputFile -AllMatches
+            $howmanymultiarts = $multiarts.count
+            if ($howmanymultiarts -gt 1) 
+                {$outputtextbox.AppendText("row: $count col: 40 - Article $split2[$i] is duplicated`r`n")}
+            else {}
+
+
+            ## MTS duplicated article search
+            QueryArticle $split2[$i]
+                if ($split2[$i] -eq $strarticle)
+                    {$outputtextbox.AppendText("row: $count col: 40 - Error in Article list field, article is duplicated in MTS`r`n")}
+                else {}
+          
+        }  
+
+
+<#
+Write-Host $articledups
+
+#ForEach ($articledup in $articledups){
+
+for ( $i = 0; $i -lt $articledups.Count; $i++ ) 
+{
+    # If one of the patterns does not match, skip the item.
+    $matched = @($mobjectfile.articlelist -contains "$articledups[$i]")
+    if( -not $matched ) { }
+    else{
+      {$outputtextbox.AppendText("testtt sted field, article $articledup found more than once`r`n")}
+        }
+}
+
+#>
+
+## whitespace at end of string checker
+## and finding illegal metacharacter regex
+#$regexillegalchars = [regex]::escape([/".[\],])
+for ( $v = 0; $v -lt 56; $v++ ) 
+        {
+            $turtle = $mfileobject.[$v]
+            $turtletrim = $turtle.TrimEnd("  ")
+        if ($turtle.length -ne $turtletrim.length)
+            { $outputtextbox.AppendText("row: $count col: $v has an whitespace at end of field`r`n")}
+            else {}
+ #       if ($turtle -contains $regexillegalchars)
+  #          { $outputtextbox.AppendText("row: $count col: $v Illegal characters in field`r`n")}
+   #         else{}
+        }
+
+#calculate percentage
+[decimal]$pct = ($count/$mfileobjects.count)*100
+#update the progress bar
+$progressbar1.Value = $pct
+
+<#
+## pick up illegal characters 
+$illegalChars = [regex]::Escape("`[")
+            filter Matchingillegals($illegalChars)
+            {
+                $mfileobject | Select-String -AllMatches $illegalChars |
+                Select-Object -ExpandProperty Matches
+                Select-Object -ExpandProperty Values
+            }
+
+Matchingillegals $illegalChars | ForEach-Object {
+                { $outputtextbox.AppendText("row: $count illegal character found $_.Value and $_Matches`r`n")}
+                                                }
+#>
+
+           
+
+
+##
+
+}
+
+ $illegalone = 0
+            $multiillegalone = Select-String -Pattern ("\[") -Path $inputFile -AllMatches
+            $illegalone = $multiillegalone.count
+            if ($illegalone -gt 0) 
+                {$outputtextbox.AppendText("row: $count Illegal character [ found`r`n")}
+            else {}
+            
+            $illegaltwo = 0
+            $multiillegaltwo = Select-String -Pattern ("\]") -Path $inputFile -AllMatches
+            $illegaltwo = $multiillegaltwo.count
+            if ($illegaltwo -gt 0) 
+                {$outputtextbox.AppendText("row: $count Illegal character ] found`r`n")}
+            else {}
+            
+            $illegalthree = 0
+            $multiillegalthree = Select-String -Pattern ("`"") -Path $inputFile -AllMatches
+            $illegalthree = $multiillegalthree.count
+            if ($multiillegalthree -gt 0) 
+                {$outputtextbox.AppendText("row: $count Illegal character `" found`r`n")}
+            else {}
+            
+            $illegalfour = 0
+            $multiillegalfour = Select-String -Pattern (",") -Path $inputFile -AllMatches
+            $illegalfour = $multiillegalfour.count
+            if ($illegalfour -gt 0) 
+                {$outputtextbox.AppendText("row: $count Illegal character , found`r`n")}
+            else {}
+            
+            $illegalfive = 0
+            $multiillegalone = Select-String -Pattern ("\/") -Path $inputFile -AllMatches
+            $illegalfive= $multiillegalfive.count
+            if ($illegalfive -gt 0) 
+                {$outputtextbox.AppendText("row: $count Illegal character / found`r`n")}
+            else {}
+            
+            
+$newcount = ($count-1)
+
+Write-Host "Total Records =" $mfileobject.count
+$outputtextbox.AppendText("`r`n Header Checking`r`n")
+if ($Articlelisttotals -eq $mfileobject.UserCode[0])
+    {$outputtextbox.AppendText("Header is incorrect, article amount should be $Articlelisttotals`r`n")}
+    else { $outputtextbox.AppendText("Header for article amount $Articlelisttotals is correct`r`n")}
+
+if (($count-1) -eq $mfileobject.ServiceCode[0])
+   {$outputtextbox.AppendText("Header is incorrect, number of connotes should be $newcount`r`n")}
+    else {$outputtextbox.AppendText("Header for number of connotes $newcount is correct`r`n")}
+
+if ($mfileobjects[0].CubicVolume -eq "0004" -OR $mfileobjects[0].CubicVolume -eq "0003" -OR $mfileobjects[0].CubicVolume -eq "0002" -OR $mfileobjects[0].CubicVolume -eq "0001")
+#if ($mfileobjects[0].CubicVolume -in "0004", "0003", "0002", "0001")
+    { }
+    else {$outputtextbox.AppendText("row: 1 col: 12 Header for postcode file version is incorrect`r`n")}
+
+    #$cidfilename = "M0401074580.88161"
+    #$cidfilename = $FilenameBox.text
+$cidcheck = [io.path]::GetFileNameWithoutExtension("$cidfilename")
+#$cid2 = $cidfilename.Substring(0, $cidfilename.LastIndexof('.'))
+$cid2 = $cidcheck.substring(6)
+#Write-Host $cid2
+#write-host $mfileobjects[0].ConID
+
+if ($cid2 -notmatch $mfileobjects[0].ConID)
+    {$outputtextbox.AppendText("Header $cid2 is incorrect, CID in file is different than filename`r`n")}
+    else {$outputtextbox.AppendText("Header for CID: $cid2 matches filename`r`n")}
+
+$outputtextbox.AppendText("`r`nMTS header check`r`n")
+<# this sproc doesnt check CID but instead checks account number to CID so below is perm comment out
+QueryCID $cid2
+if ($cid2 -match $strcidcid) 
+        {
+            $outputtextbox.AppendText("Header for CID: $cid2 matches entry in MTS`r`n")
+            #MTS check on the manifest reference, by [System.IO.Path] | Get-Member -Static
+            $manifestreffromfilename = [io.path]::GetExtension("$cidfilename")
+            QueryCIDManifestRef $cid2 $manifestreffromfilename
+                if ($cid2 -eq $strcid -AND $manifestreffromfilename -eq $strmanifestref)
+                    {$outputtextbox.AppendText("Header for Manifest reference: $manifestreffromfilename matches entry in MTS`r`n")}
+                else {}
+    else{$outputtextbox.AppendText("Header for CID: $cid2 does not match in MTS")}
+#>
+$manifestreffromfilename = [io.path]::GetExtension("$cidfilename")
+$manifestreffromfilename = $manifestreffromfilename.substring(1)
+$strmanifestrefwithoutzero = $manifestreffromfilename.TrimStart('0')
+            QueryCIDManifestRef $cid2 $manifestreffromfilename
+                if ($cid2 -eq $strcid -AND $manifestreffromfilename -eq $strmanifestref)
+                    {$outputtextbox.AppendText("Header for Manifest reference: $manifestreffromfilename for CID: $cid2 already exists in MTS`r`n")}
+                elseif ($cid2 -eq $strcid -AND $strmanifestrefwithoutzero -eq $strmanifestref)
+                    {$outputtextbox.AppendText("Header for Manifest reference: $manifestreffromfilename for CID: $cid2 already exists in MTS`r`n")}
+                else {$outputtextbox.AppendText("Header for Manifest reference: Correct Manifest Reference $manifestreffromfilename does not exist in MTS`r`n")}
+    $outputtextbox.AppendText("------------`r`n")
+
+$LoadButton.Enabled = $true        
+#
+##
+###
+####
+#####
+######
+$connection.close()
+######
+#####
+####
+##
+#
+}
+
+
+
+$handler_button1_Click=
+{
+<#
+Need to run foreach regex checking on each header.
+compulsory headers are as follows
+Con ID
+Consignment Number
+Cancelled
+Account Number
+User Code
+Service Code
+Receiver Company Name
+Receiver Address Line
+Receiver Suburb
+Receiver Post Code
+Zone
+Sticker
+From Zone
+From Port
+Length
+Width
+Height
+Cubic Weight
+Dead Weight
+Basic Charge
+Kilo Charge
+Total Charge
+Payment Terms Code
+Number of Articles
+ArticleList
+GST
+Total Including GST
+Return Con
+Associated Con ID
+Sender Company
+Sender Address Line 1
+Sender Suburb
+Sender Postcode
+#>
+
+
+$OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+$OpenFileDialog.Title = “Please select a file”
+$OpenFileDialog.InitialDirectory = “C:\Mfiles”
+$OpenFileDialog.Filter = “M Files (M*.*)|M*.*”
+$result = $OpenFileDialog.ShowDialog()
+$inputFile = $OpenFileDialog.FileName
+
+
+
+$cidfilename = $OpenFileDialog.filename
+
+
+
+
+$initiatetext = $OpenFileDialog.SafeFileName 
+$FilenameBox.text = $OpenFileDialog.FileName
+if (!$FilenameBox.text) 
+{ $ProbeButton.Enabled = $false }
+else { $ProbeButton.Enabled = $true }
+
+}
+
+$handler_textBox1_TextChanged= 
+{
+#TODO: Place custom script here
+
+}
+
+$handler_form1_Load= 
+{
+$ProbeButton.Enabled = $false
+
+$outputtextbox.Text = @"
+`r`n M file Probe analyses the M file and determines errors according to the following;
+    - Specification of the filename
+    - MTS duplication 
+    - Header matching MTS values
+
+The application will determine where the error resides in the file and directs
+end user where to fix the file in order for the file to be passed into MTS for
+tracking and billing purposes of the air consignment.
+
+
+"@
+
+}
+
+$handler_label2_Click= 
+{
+#TODO: Place custom script here
+
+}
+
+$handler_label1_Click= 
+{
+#TODO: Place custom script here
+
+}
+
+
+
+$OnLoadForm_StateCorrection=
+{#Correct the initial state of the form to prevent the .Net maximized form issue
+       $ProbeForm.WindowState = $InitialFormWindowState
+}
+
+#----------------------------------------------
+#region Generated Form Code
+$ProbeForm.BackgroundImageLayout = 0
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 473
+$System_Drawing_Size.Width = 663
+$ProbeForm.ClientSize = $System_Drawing_Size
+$ProbeForm.DataBindings.DefaultDataSourceUpdateMode = 0
+$ProbeForm.MaximizeBox = $False
+$ProbeForm.Name = "ProbeForm"
+$ProbeForm.ShowIcon = $False
+$ProbeForm.Text = "M file Probe"
+$ProbeForm.add_Load($handler_form1_Load)
+
+$OutputTextBox.DataBindings.DefaultDataSourceUpdateMode = 0
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 22
+$System_Drawing_Point.Y = 81
+$OutputTextBox.Location = $System_Drawing_Point
+$OutputTextBox.Multiline = $True
+$OutputTextBox.Name = "OutputTextBox"
+$OutputTextBox.ReadOnly = $True
+$OutputTextBox.BackColor = "AliceBlue"
+$OutputTextBox.Font = "lucida console"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 344
+$System_Drawing_Size.Width = 620
+$OutputTextBox.Size = $System_Drawing_Size
+$OutputTextBox.TabIndex = 12
+$OutputTextBox.ScrollBars = 2
+
+
+$ProbeForm.Controls.Add($OutputTextBox)
+
+
+$ProbeButton.DataBindings.DefaultDataSourceUpdateMode = 0
+
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 486
+$System_Drawing_Point.Y = 12
+$ProbeButton.Location = $System_Drawing_Point
+$ProbeButton.Name = "ProbeButton"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 47
+$System_Drawing_Size.Width = 157
+$ProbeButton.Size = $System_Drawing_Size
+$ProbeButton.TabIndex = 11
+$ProbeButton.Text = "Probe"
+$ProbeButton.UseVisualStyleBackColor = $True
+$ProbeButton.add_Click($ProbeButton_OnClick)
+
+$ProbeForm.Controls.Add($ProbeButton)
+
+$taskbarpicture = New-Object System.Drawing.Icon("C:\Mfiles\Mfiles\star.ico")
+$LogoPicture.DataBindings.DefaultDataSourceUpdateMode = 0
+
+$LogoPicture.Image = [System.Drawing.Image]::FromFile('C:\Mfiles\STlogo.gif')
+
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 526
+$System_Drawing_Point.Y = 445
+$LogoPicture.Location = $System_Drawing_Point
+$LogoPicture.Name = "LogoPicture"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 28
+$System_Drawing_Size.Width = 117
+$LogoPicture.Size = $System_Drawing_Size
+$LogoPicture.TabIndex = 8
+$LogoPicture.TabStop = $False
+
+$ProbeForm.Controls.Add($LogoPicture)
+
+$progressBar1.DataBindings.DefaultDataSourceUpdateMode = 0
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 77
+$System_Drawing_Point.Y = 39
+$progressBar1.Location = $System_Drawing_Point
+$progressBar1.Name = "progressBar1"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 20
+$System_Drawing_Size.Width = 211
+$progressBar1.Size = $System_Drawing_Size
+$progressBar1.Style = 1
+$progressBar1.TabIndex = 12
+
+$ProbeForm.Controls.Add($progressBar1)
+
+$CreditLabel.DataBindings.DefaultDataSourceUpdateMode = 0
+
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 11
+$System_Drawing_Point.Y = 446
+$CreditLabel.Location = $System_Drawing_Point
+$CreditLabel.Name = "CreditLabel"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 27
+$System_Drawing_Size.Width = 168
+$CreditLabel.Size = $System_Drawing_Size
+$CreditLabel.TabIndex = 2
+$CreditLabel.Text = "Created by Naweesh Rao 2015 - v0.08 Beta"
+$CreditLabel.add_Click($handler_label2_Click)
+
+$ProbeForm.Controls.Add($CreditLabel)
+
+$FilenameBox.DataBindings.DefaultDataSourceUpdateMode = 0
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 77
+$System_Drawing_Point.Y = 12
+$FilenameBox.Location = $System_Drawing_Point
+$FilenameBox.MaxLength = 30
+$FilenameBox.Name = "FilenameBox"
+$FilenameBox.ReadOnly = $True
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 20
+$System_Drawing_Size.Width = 211
+$FilenameBox.Size = $System_Drawing_Size
+$FilenameBox.TabIndex = 3
+$FilenameBox.add_TextChanged($handler_textBox1_TextChanged)
+
+$ProbeForm.Controls.Add($FilenameBox)
+
+$FilenameLabel.DataBindings.DefaultDataSourceUpdateMode = 0
+
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 22
+$System_Drawing_Point.Y = 12
+$FilenameLabel.Location = $System_Drawing_Point
+$FilenameLabel.Name = "FilenameLabel"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 31
+$System_Drawing_Size.Width = 62
+$FilenameLabel.Size = $System_Drawing_Size
+$FilenameLabel.TabIndex = 1
+$FilenameLabel.Text = "Filename"
+$FilenameLabel.add_Click($handler_label1_Click)
+
+$ProbeForm.Controls.Add($FilenameLabel)
+
+
+$LoadButton.DataBindings.DefaultDataSourceUpdateMode = 0
+
+$System_Drawing_Point = New-Object System.Drawing.Point
+$System_Drawing_Point.X = 316
+$System_Drawing_Point.Y = 12
+$LoadButton.Location = $System_Drawing_Point
+$LoadButton.Name = "LoadButton"
+$System_Drawing_Size = New-Object System.Drawing.Size
+$System_Drawing_Size.Height = 47
+$System_Drawing_Size.Width = 157
+$LoadButton.Size = $System_Drawing_Size
+$LoadButton.TabIndex = 0
+$LoadButton.Text = "Load"
+$LoadButton.UseVisualStyleBackColor = $True
+$LoadButton.add_Click($handler_button1_Click)
+
+$ProbeForm.Controls.Add($LoadButton)
+
+#endregion Generated Form Code
+
+#Save the initial state of the form
+$InitialFormWindowState = $ProbeForm.WindowState
+#Init the OnLoad event to correct the initial state of the form
+$ProbeForm.add_Load($OnLoadForm_StateCorrection)
+#Show the Form
+$ProbeForm.ShowDialog()| Out-Null
+
+} #End Function
+
+#Call the Function
+GenerateForm
+
+
+
+
+
+
+
+
+
+
