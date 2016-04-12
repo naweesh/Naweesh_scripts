@@ -1,0 +1,77 @@
+From: Rao, Naweesh 
+Sent: Wednesday, 15 July 2015 6:05 PM
+To: Rao, Naweesh
+Subject: working out audit #1
+ 
+What files where not backed up which came into error in MTS
+ 
+775 file records are in the MTS logs that are still in the status as Error. That is potentially 775 files have not been processed and charged. 
+ 
+The logic is as follows;
+ 
+The file enters in MTS and is picked up as erroneous. It identifies the mfile by the CID and ManifestRef and logs the associated metadata into the manifesthistory table with status as “Error”.
+If the same mfile with the exact same CID and ManifestRef is imported successfully then the status changes from Error.
+ 
+The following is my process on auditing so it can be replicated or used as future referencing (don’t think this will ever happen again) but just in case will be useful.
+ 
+SQL – MTS
+select * from manifesthistory where manifeststatus = 'Error' and importeddate > '2015-04-01' and cid not in (78827,67508)
+ 
+Powershell – retrieve listing in backup folder
+Get-ChildItem -Filter M*.* | select basename, extension, pschildname, creationtime | sort-object creationtime -descending | export-csv "C:\mfilebackupclevo\new folder\backup.csv" 
+ 
+Powershell – retrieve listing in done folder
+Get-ChildItem -Filter M*.* | select basename, extension, pschildname, creationtime | sort-object creationtime -descending | export-csv "C:\mfilebackupclevo\new folder\done.csv" 
+ 
+Then clean up the above two listings in excel and format to the correct listing that can be cross referenced to MTS, a lot easier than using trim and length object  code.
+ 
+There is two sources where we can find the files from. They are either in the Backup or Done folder. 
+ 
+BackUp
+ 
+# Arraylist's initial size 500,000 elemnents
+$secondFile = new-object Collections.ArrayList(500000)
+# Init MD5 tools
+$md5 = new-object Security.Cryptography.MD5CryptoServiceProvider
+$utf8 = new-object Text.UTF8Encoding
+# Read the 2nd large file
+$reader = [IO.File]::OpenText("C:\MFILEBACKUPCLEVO\New folder\New folder\backup.csv")
+$i=0
+while( ($line = $reader.ReadLine()) -ne $null) {
+    # Get MD5 for each row and store it in the arraylist
+    $hash = [System.BitConverter]::ToString($md5.ComputeHash($utf8.GetBytes($line)))
+    $secondFile.Add($hash) | out-null
+    if(++$i % 25000 -eq 0) {write-host -nonewline "."}
+}
+$reader.Close()
+# Sort the arraylist so that it can be binarysearched
+$secondFile.Sort()
+ 
+ 
+# Open and read the file row-vise
+$reader = [IO.File]::OpenText("C:\MFILEBACKUPCLEVO\New folder\New folder\mts.csv")
+ 
+while( ($line = $reader.ReadLine()) -ne $null) {
+    # Get MD5 for current row
+    $hash = [System.BitConverter]::ToString($md5.ComputeHash($utf8.GetBytes($line)))
+    # If the row already exists in the other file, you'd find its MD5 index with
+    # binarysearch in O(n log n) time. If found, you'd get zero or larger index        
+    if($secondFile.BinarySearch($hash) -le -1) {
+        "Not found: $line"
+    }
+    else {"Found: $line"}
+}
+$reader.Close() 
+ 
+To double check I ran the below query I know will work 100% of the time. And found my above query is correct
+ 
+Comparison
+$m = compare-object -referenceobject $(get-content "C:\MFILEBACKUPCLEVO\New folder\MTSfilename.csv") -differenceobject $(get-content "C:\MFILEBACKUPCLEVO\New folder\Backupfolderfilename.csv") -includeequal
+$m | Export-Csv "C:\MFILEBACKUPCLEVO\New folder\comparison.csv" 
+ 
+What this means?
+That either the manifesthistory table needs to be inspected. Or the unfortunate possibility that manifestfiles have been backed up and imported but failed to return into the repair folder. Or even that t was backed up and then deleted.
+ 
+Kind Regards,
+ 
+Naweesh Rao
