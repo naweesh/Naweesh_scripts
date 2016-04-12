@@ -1,0 +1,17 @@
+$max = $host.UI.RawUI.MaxPhysicalWindowSize
+$host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(9999,9999)
+#$host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size($max.Width,$max.Height)
+
+$connote = 'JCW037131'
+$Request = Invoke-WebRequest -Uri https://www.startrack.com.au/track-trace/?id=$connote
+$w = $Request.ParsedHtml.getElementsByTagName("td") | select outertext
+$script:b = $null
+
+         for ( $i = ($w.count); $i -gt 0; $i -= 4 )
+         {
+         if ($w[$i].outertext -match $connote) {break}
+            $script:b += ($w[$i].outertext);
+         }
+
+         Write-Output $script:b
+
