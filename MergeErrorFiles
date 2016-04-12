@@ -1,0 +1,8 @@
+$result = "C:\logicalfreight\11042016\merge\merged.csv"
+$csvs = get-childItem "C:\logicalfreight\11042016\*.*" 
+#read and write CSV header
+[System.IO.File]::WriteAllLines($result,[System.IO.File]::ReadAllLines($csvs[0])[0])
+#read and append file contents minus header
+foreach ($csv in $csvs)  {
+    $lines = [System.IO.File]::ReadAllLines($csv)
+    [System.IO.File]::AppendAllText($result, ($lines[1..$lines.Length] | Out-String))}
