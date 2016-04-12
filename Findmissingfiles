@@ -1,0 +1,18 @@
+#$ErrorActionPreference = "SilentlyContinue"
+$inputFile = "M:\Information Technology\1. Help Desk\25. Freight Master\Manifest File Area\Old_dated_files\Oldones\filelist.txt"
+## created by naweesh rao
+$header = "File1"
+$filenames = Import-Csv $inputFile -header $header
+
+
+ForEach ( $filename in $filenames ) {
+
+$filename2 = $filename.File1
+
+#copy-item -Path "w:\repair\backup\$filename2" -Destination "M:\Information Technology\1. Help Desk\25. Freight Master\Manifest File Area\Oldones\found" -Force
+
+Copy-Item -Filter $filename2 "w:\" "M:\Information Technology\1. Help Desk\25. Freight Master\Manifest File Area\Oldones2\" -Recurse
+
+}
+
+
