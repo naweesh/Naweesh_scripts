@@ -1,0 +1,24 @@
+Add-PSSnapin quest* 
+
+###########################
+CONNECT-QADSERVICE -service steads01
+Write-Host Lync Creation - AD Attribute Copier
+Write-Host Simply enter username and required attributes will be setup
+# $username = read-host "Enter username:"
+$username = "MKARANTZOULI"
+$msexchaccountsid  = Get-QADUser $username -IncludeAllProperties | Select-Object -expand msexchmasteraccountsid
+Set-QADUser $username -ObjectAttributes @{"msRTCSIP-OriginatorSid" = "$msexchaccountsid"}
+
+
+
+# $msexchaccountsid  = Get-QADUser nrao -IncludeAllProperties | Select-Object msRTCSIP-OriginatorSid
+# Set-QADUser MKARANTZOULI -ObjectAttributes @{'msRTCSIP-OriginatorSid' = '0105000000000005150000003CF8BC87E95832C818CF6624645C0000'}
+
+Disconnect-QADService -Service steads01
+############################
+## Issue is that the value for $msexchaccoutsid is an hex string, but these particular attributes are SIDs, so i need to parse them as
+## octet strings, that is an conversion is needed to be made or alternatively somehow get the initial value as an SID
+
+#msRTCSIP-OriginatorSid                                                                                                                               
+#----------------------                                                                                                                               
+#0105000000000005150000003CF8BC87E95832C818CF6624645C0000  
