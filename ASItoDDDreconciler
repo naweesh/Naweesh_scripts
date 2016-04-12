@@ -1,0 +1,25 @@
+$dinin = "C:\FOJ\naweesh\tillcurrent"
+$dinout = "C:\FOJ\naweesh\04and05\dinout.csv"
+$trueornot = "C:\FOJ\naweesh\04and05\trueornot.csv"
+$regex = '^30'
+$csv3 = "C:\FOJ\naweesh\04and05\result.csv"
+
+## use regular expression to pattern match
+get-childitem -path $dinin | get-content | select-string -pattern $regex | add-content $dinout
+
+$working = get-content $dinout | foreach-object {
+    %{$_ -match '[FOJ]' | out-file $trueornot -append}
+}
+
+
+## merge into one file
+$csv1 = @(get-content C:\FOJ\naweesh\04and05\dinout.csv)
+$csv2 = @(get-content C:\FOJ\naweesh\04and05\trueornot.csv)
+$csv3 = @()
+for ($i=0; $i -lt $csv1.Count; $i++) {
+    $csv3 += $csv1[$i] + ',' + $csv2[$i]
+    }
+
+$csv3 | out-file "C:\FOJ\naweesh\04and05\result.csv"
+
+C:\FOJ\naweesh\04and05\result.csv
