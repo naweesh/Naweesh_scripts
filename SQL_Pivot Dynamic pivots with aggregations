@@ -1,0 +1,117 @@
+The below illustrates using a dynamic variables to create a pivot result set for reporting with aggregation totals on the
+ row and column fields.
+
+
+
+
+USE [EDR]
+GO
+/****** Object:  StoredProcedure [dbo].[PPTX_ProjectInitiative_PIRQuery]    Script Date: 8/07/2019 2:21:41 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+---- =============================================
+---- Author:		<Author,,Name>
+---- Create date: <Create Date,,>
+---- Description:	<Description,,>
+---- =============================================
+ALTER PROCEDURE [dbo].[PPTX_ProjectInitiative_PIRQuery] 
+
+
+AS
+BEGIN
+--	-- SET NOCOUNT ON added to prevent extra result sets from
+--	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+  TRUNCATE TABLE [dbo].[ProjectInitiative_PIRCount]
+     -- DYNAMIC COLUMN TOTALS
+  DECLARE @GrandTotalCol NVARCHAR(MAX)
+  SELECT @GrandTotalCol = COALESCE
+							  (@GrandTotalCol + 
+									'ISNULL ([' + CAST([Program] AS VARCHAR) +'],0) + '
+									,'ISNULL([' + CAST([Program] AS VARCHAR)+ '],0) + '
+									,'ISNULL([' + CAST([Program] AS VARCHAR) +'],0) + '
+									,'ISNULL([' + CAST([Program] AS VARCHAR) +'],0) + '
+									,'ISNULL([' + CAST([Program] AS VARCHAR) +'],0) + '
+									,'ISNULL([' + CAST([Program] AS VARCHAR) +'],0) + '
+									,'ISNULL([' + CAST([Program] AS VARCHAR) +'],0) + '
+									,'ISNULL([' + CAST ([Program] AS VARCHAR) +'],0) + 
+									')
+							FROM [EDR].[dbo].[ProjectInitiative] 
+							WHERE Program IN ('ColSub1','ColSub2','ColSub3','ColSub4','ColSub5','ColSub6','ColSub7')
+							GROUP BY Program
+
+						    SET @GrandTotalCol = LEFT (@GrandTotalCol, LEN (@GrandTotalCol)-1)
+
+							-- ISNULL([ColSub1],0) + ISNULL ([ColSub2],0) + ISNULL ([ColSub3],0) + ISNULL ([ColSub7],0) + ISNULL ([ColSub4],0) + ISNULL ([ColSub5],0) + ISNULL ([ColSub6],0) 
+
+	-- DYNAMIC GRAND TOTAL ROW
+	DECLARE @GrandTotalRow NVARCHAR(MAX)
+	SELECT @GrandTotalRow = COALESCE
+								(@GrandTotalRow +
+									',ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									,'ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									,'ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									,'ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									,'ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									,'ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									,'ISNULL(SUM([' + CAST([Program] AS VARCHAR) +']),0)'
+									+')')
+							FROM [EDR].[dbo].[ProjectInitiative] 
+							WHERE Program IN ('ColSub1','ColSub2','ColSub3','ColSub4','ColSub5','ColSub6','ColSub7')
+							GROUP BY Program
+							ORDER BY Program
+
+							-- ISNULL(SUM([ColSub1]),0),ISNULL(SUM([ColSub2]),0),ISNULL(SUM([ColSub3]),0),ISNULL(SUM([ColSub4]),0),ISNULL(SUM([ColSub5]),0),ISNULL(SUM([ColSub6]),0),ISNULL(SUM([ColSub7]),0)
+
+	-- FINAL OUTPUT OF PIVOT TABLE
+	DECLARE @OutputQuery NVARCHAR(MAX)
+	SET @OutputQuery = 
+	'
+		SELECT StatusManual AS ''Status / Program'',
+			[ColSub1],[ColSub2],[ColSub3],[ColSub4],[ColSub5],[ColSub6],[ColSub7]
+			 , ('+ @GrandTotalCol + ') 
+			AS [Grand Total]
+			INTO #tempMatchesTotal
+													FROM 
+													(
+														SELECT StatusManual
+																, Program 
+														FROM [EDR].[dbo].[ProjectInitiative]
+													) AS A
+													PIVOT
+													(
+														COUNT(Program) 
+															FOR Program 
+															IN
+															([ColSub1],[ColSub2],[ColSub3],[ColSub4],[ColSub5],[ColSub6],[ColSub7])
+													)
+												  AS PivotTable;
+		INSERT INTO [dbo].[ProjectInitiative_PIRCount] ([Status],[ColSub1],[ColSub2],[ColSub3],[ColSub4],[ColSub5],[ColSub6],[ColSub7],[GrandTotal])
+		SELECT 
+		[Status / Program],[ColSub1],[ColSub2],[ColSub3],[ColSub4],[ColSub5],[ColSub6],[ColSub7],[Grand Total] 
+		FROM #tempMatchesTotal
+		
+		UNION ALL
+		
+		--SELECT ''Grand Total'','+@GrandTotalRow +', ISNULL(SUM([Grand Total]),0) 
+		SELECT ''Grand Total'',ISNULL(SUM([ColSub1]),0),ISNULL(SUM([ColSub2]),0),ISNULL(SUM([ColSub3]),0),ISNULL(SUM([ColSub4]),0),ISNULL(SUM([ColSub5]),0),ISNULL(SUM([ColSub6]),0),ISNULL(SUM([ColSub7]),0), ISNULL(SUM([Grand Total]),0)
+		FROM #tempMatchesTotal
+		
+
+		DROP TABLE #tempMatchesTotal
+		--PRINT ''Pivot Query '' + @OutputQuery
+		'
+
+		--select @OutputQuery
+		EXECUTE(@OutputQuery)
+
+
+
+		END
+
+
