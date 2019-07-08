@@ -1,0 +1,237 @@
+The below is truncating and repopulating source data into UAT by using the temp db created. In hindsight i should have modelled the master 
+database with the same collation so the staging database could match. In any case i hardcoded it, and put in logic to alter the collation.
+
+I used my second favourite feature of @@ROWCOUNT as the loop condition, second only two partitions. 
+
+USE [Naweesh_UAT]
+
+IF OBJECT_ID('TEMPDB.DBO.#TEMPTABLELISTING','U') IS NOT NULL DROP TABLE #TEMPTABLELISTING
+IF OBJECT_ID('TEMPDB.DBO.#TEMPTABLECOUNT','U') IS NOT NULL DROP TABLE #TEMPTABLECOUNT
+IF OBJECT_ID('TEMPDB.DBO.#TEMPFULLLIST','U') IS NOT NULL DROP TABLE #TEMPFULLLIST
+IF OBJECT_ID('TEMPDB.DBO.#TEMPCOLUMNMATCH','U') IS NOT NULL DROP TABLE #TEMPCOLUMNMATCH
+IF OBJECT_ID('TEMPDB.DBO.#TEMPDATAMATCH','U') IS NOT NULL DROP TABLE #TEMPDATAMATCH
+IF OBJECT_ID('TEMPDB.DBO.#TEMPFKLIST','U') IS NOT NULL DROP TABLE #TEMPFKLIST
+ 
+
+
+-- Checking collation
+DECLARE @collationStaging NVARCHAR(255), @collationInform NVARCHAR(255)
+SET @collationStaging = (SELECT collation_name FROM SYS.DATABASES WHERE name = 'Naweesh_UAT')
+SET @collationInform = (SELECT collation_name FROM SYS.DATABASES WHERE name = 'InformV3_UAT')
+
+IF @collationStaging <> @collationInform
+BEGIN
+	ALTER DATABASE [Naweesh_UAT] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+	EXEC ('ALTER DATABASE [Naweesh_UAT] COLLATE ' + @collationInform) 
+	PRINT 'Altered Collation on destination Database to match Inform'
+
+	ALTER DATABASE [Naweesh_UAT] SET MULTI_USER WITH ROLLBACK IMMEDIATE
+END
+
+/* The below will track the database refresh */
+IF OBJECT_ID('staging.dev.[DatabaseRefresh]','U') IS NULL
+BEGIN
+	CREATE TABLE [dev].[DatabaseRefresh]
+	(
+		[Id] [int] IDENTITY(1,1) NOT NULL,
+		[Table] [nvarchar](255) NOT NULL,
+		[Type] [varchar](50),
+		[Result] [bit] NOT NULL,
+		[TimeStamp] [datetime] NULL DEFAULT (GETDATE())
+	)
+END
+
+/* Getting details for database refresh */
+Select T.TABLE_CATALOG,T.TABLE_SCHEMA, T.TABLE_NAME
+    , Stuff(
+        (
+        Select ', ' + C.COLUMN_NAME
+        From [InFormV3_UAT].INFORMATION_SCHEMA.COLUMNS As C
+		LEFT JOIN SYS.computed_columns S ON C.TABLE_NAME = OBJECT_NAME(OBJECT_ID) AND C.COLUMN_NAME = NAME
+        Where C.TABLE_SCHEMA = T.TABLE_SCHEMA
+            And C.TABLE_NAME = T.TABLE_NAME AND C.DATA_TYPE<>'timestamp' --THIS EXCLUDES TIMESTAMP COLUMNS
+			AND S.is_computed IS NULL OR S.is_computed=0 -- THIS EXCLUDES COMPUTED COLUMNS
+        Order By C.ORDINAL_POSITION
+        For Xml Path('')
+        ), 1, 2, '') As Columns
+into #TEMPTABLELISTING
+From .[InFormV3_UAT].INFORMATION_SCHEMA.TABLES As T
+    Left Join INFORMATION_SCHEMA.VIEWS As V
+        On V.TABLE_SCHEMA = T.TABLE_SCHEMA
+            And V.TABLE_NAME = T.TABLE_NAME
+Where V.TABLE_NAME IS NULL AND T.TABLE_TYPE = 'base table' 
+
+SELECT SO.NAME,SI.rowcnt
+INTO #TEMPTABLECOUNT 
+FROM [InFormV3_UAT].dbo.sysindexes SI
+  INNER JOIN [InFormV3_UAT].dbo.sysobjects SO ON SI.id = SO.id 
+WHERE SI.indid < 2  --AND OBJECTPROPERTY(o.id, 'IsMSShipped') = 0 -- property to exclude sql tables
+
+
+
+SELECT T1.TABLE_CATALOG,T1.TABLE_NAME,T1.[Columns],T2.rowcnt 
+INTO #TEMPFULLLIST
+FROM #TEMPTABLELISTING T1
+INNER JOIN #TEMPTABLECOUNT T2 ON T1.TABLE_NAME=T2.name
+ORDER BY T2.rowcnt DESC, T1.TABLE_NAME
+
+
+SELECT  obj.name AS FK_NAME,
+    sch.name AS [schema_name],
+    tab1.name AS [table],
+    col1.name AS [column],
+    tab2.name AS [referenced_table],
+    col2.name AS [referenced_column]
+INTO #TEMPFKLIST
+FROM sys.foreign_key_columns fkc
+INNER JOIN sys.objects obj
+    ON obj.object_id = fkc.constraint_object_id
+INNER JOIN sys.tables tab1
+    ON tab1.object_id = fkc.parent_object_id
+INNER JOIN sys.schemas sch
+    ON tab1.schema_id = sch.schema_id
+INNER JOIN sys.columns col1
+    ON col1.column_id = parent_column_id AND col1.object_id = tab1.object_id
+INNER JOIN sys.tables tab2
+    ON tab2.object_id = fkc.referenced_object_id
+INNER JOIN sys.columns col2
+    ON col2.column_id = referenced_column_id AND col2.object_id = tab2.object_id
+
+/* Things to adds
+- Use a cursor to list out tables - completed
+- Change the inserting to do in batches of 1000  - completed
+- Check for simple backup, if not change and then restore afterwards. -- dont need if doing in batches
+- add some error handling 
+*/
+
+-- Truncate Staging and copy records from PROD to Staging
+DECLARE @TABLENAME NVARCHAR(MAX)
+DECLARE @TABLECOLS NVARCHAR(MAX)
+DECLARE @IDENTITY NVARCHAR(MAX)
+-- SET @TABLENAME = (SELECT TABLE_NAME FROM #TEMPFULLLIST WHERE TABLE_NAME = 'Holiday') -- Using holiday as test, create loop or cursor here
+-- SET @TABLECOLS = (SELECT [Columns] FROM #TEMPFULLLIST WHERE TABLE_NAME = 'Holiday')
+
+-- CURSOR READING TABLE NAME FOR DYNAMIC REFRESH
+DECLARE @GETTABLE NVARCHAR(MAX)
+
+-- select * from #TEMPFULLLIST
+DECLARE GETTABLE CURSOR FOR
+SELECT TABLE_NAME FROM #TEMPFULLLIST WHERE rowcnt >= 1 
+AND TABLE_NAME NOT IN ('SysDistributionItem','Operator','SysNotificationAttachment','SysNotificationDefinition') -- THIS IS DUE TO THE Msg 5335 ERROR, THAT IS ITS USING A DATATYPE OF IMAGE, and SysNotificationDefinition due to its foreign key. I will do these ones via a manual script or RedGate.
+-- The data type image cannot be used as an operand to the UNION, INTERSECT or EXCEPT operators because it is not comparable.
+/*AND TABLE_NAME IN -- this is just for testing that these larger tables move properly and dynamically. Please remove when move for live run.
+(
+'SysAuditTrail','SysApproval','WCSubTaskL1Item','WCTask','WCSubTask'
+,'WCSubTaskL2Item','WCTopic','WC','DATLookups','DAT','_EffTempTable','Holiday','SysAuditTrail'
+,'SysFileUploadSettings','SysXmlImport','SysXmlImportSettings')*/
+
+OPEN GETTABLE
+FETCH NEXT FROM GETTABLE INTO @GETTABLE
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+
+						SET @TABLENAME = (SELECT TABLE_NAME FROM #TEMPFULLLIST WHERE TABLE_NAME = @GETTABLE) --ON PURPOSE
+						SET @TABLECOLS = (SELECT [Columns] FROM #TEMPFULLLIST WHERE TABLE_NAME = @GETTABLE)
+						DECLARE @SQL NVARCHAR(MAX)
+						/* TURN ON ALLOWING TO COPY IDENTITIES */
+						IF EXISTS (SELECT TOP 1 * FROM [InFormV3_UAT].sys.identity_columns
+						WHERE object_id = (
+								SELECT id
+								FROM sysobjects
+								WHERE name = @TABLENAME
+										  )
+								  ) 
+						BEGIN
+							PRINT @TABLENAME
+							EXEC ('TRUNCATE TABLE [Naweesh_UAT].dbo.' + @TABLENAME)
+							--EXEC ('SET IDENTITY_INSERT [Naweesh_UAT].dbo.' + @TABLENAME + ' ON DECLARE @BatchSize int SET @BatchSize = 1000 WHILE 1=1 BEGIN INSERT INTO [Naweesh_UAT].[dbo].' + @TABLENAME + ' (' + @TABLECOLS + ') SELECT TOP (@BatchSize) ' + @TABLECOLS + ' FROM ( SELECT * FROM [InFormV3_UAT].[dbo].' + @TABLENAME + ' EXCEPT SELECT * FROM [Naweesh_UAT].[dbo].' + @TABLENAME + ') L1 IF @@ROWCOUNT < @BatchSize BREAK END')
+							
+							--EXEC ('SET IDENTITY_INSERT [Naweesh_UAT].dbo.' + @TABLENAME + ' ON')
+							/* THIS IS THE PROPER ONE, COMMENTING TO TEST 
+							SET @SQL = 'USE [Naweesh_UAT]' + CHAR(13)
+							SET @SQL = 'DECLARE @BatchSize int' + CHAR(13) + 'SET @BatchSize = 1000'  + CHAR(13)
+							SET @SQL = @SQL + 'WHILE 1=1' + CHAR(13) + 'BEGIN' + CHAR(13)
+							--SET @SQL = @SQL + 'GO' + CHAR(13) --testing GO
+							SET @SQL = @SQL + 'SET IDENTITY_INSERT [Naweesh_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ' ON;' + CHAR(13)
+							SET @SQL = @SQL + 'INSERT INTO [Naweesh_UAT].[dbo].' + @TABLENAME + ' (' + @TABLECOLS + ')'  + CHAR(13)
+							SET @SQL = @SQL + 'SELECT TOP (@BatchSize) ' + @TABLECOLS + ' FROM ' + CHAR(13) + '( SELECT * FROM [InFormV3_UAT].[dbo].' + QUOTENAME(@TABLENAME) + CHAR(13)
+							SET @SQL = @SQL + ' EXCEPT SELECT * FROM [Naweesh_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ') L1 ' + CHAR(13)
+							--SET @SQL = @SQL + 'SET IDENTITY_INSERT [Naweesh_UAT].dbo.' + @TABLENAME + ' OFF' + CHAR(13)
+							--SET @SQL = @SQL + 'GO' + CHAR(13) --testing GO
+							SET @SQL = @SQL + 'IF @@ROWCOUNT < @BatchSize BREAK '
+							SET @SQL = @SQL + 'END' + CHAR(13)
+							*/
+							SET @SQL = 'USE [Naweesh_UAT]'
+							SET @SQL = @SQL + ' SET IDENTITY_INSERT [Naweesh_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ' ON'
+							SET @SQL = @SQL + ' INSERT INTO [Naweesh_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ' (' + @TABLECOLS + ')'
+						--	SET @SQL = @SQL + ' SELECT ' + @TABLECOLS + ' FROM ( SELECT * FROM [InFormV3_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ');'
+							SET @SQL = @SQL + ' SELECT ' + @TABLECOLS + ' FROM [InFormV3_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ';'
+						--	SET @SQL = @SQL + ' EXCEPT SELECT * FROM [Naweesh_UAT].[dbo].' + QUOTENAME(@TABLENAME) + ') L1 '
+
+							EXECUTE (@SQL)
+							
+							/*
+							SET @SQL = 'SET IDENTITY_INSERT [Naweesh_UAT].dbo.' + @TABLENAME + ' ON' + CHAR(13)
+							SET @SQL = @SQL + 'DECLARE @BatchSize int' + CHAR(13) + 'SET @BatchSize = 1000'  + CHAR(13) + 'WHILE 1=1 BEGIN INSERT INTO [Naweesh_UAT].[dbo].' + @TABLENAME + ' (' + @TABLECOLS + ')'  + CHAR(13) + 'SELECT TOP (@BatchSize) ' + @TABLECOLS + ' FROM ( SELECT * FROM [InFormV3_UAT].[dbo].' + @TABLENAME + ' EXCEPT SELECT * FROM [Naweesh_UAT].[dbo].' + @TABLENAME + ') L1 IF @@ROWCOUNT < @BatchSize BREAK END'
+							--EXEC (@SQL) 
+							*/
+							PRINT @SQL
+						END
+						ELSE
+							EXEC ('TRUNCATE TABLE [Naweesh_UAT].dbo.' + @TABLENAME)
+							EXEC ('DECLARE @BatchSize int SET @BatchSize = 1000 WHILE 1=1 BEGIN INSERT INTO [Naweesh_UAT].[dbo].' + @TABLENAME + ' (' + @TABLECOLS + ') SELECT TOP (@BatchSize) ' + @TABLECOLS + ' FROM ( SELECT * FROM [InFormV3_UAT].[dbo].' + @TABLENAME + ' EXCEPT SELECT * FROM [Naweesh_UAT].[dbo].' + @TABLENAME + ') L1 IF @@ROWCOUNT < @BatchSize BREAK END')
+						
+
+
+						/* TRUNCATE TABLE */
+						--EXEC ('TRUNCATE TABLE [Naweesh_UAT].dbo.' + @TABLENAME)
+
+
+						/* INSERT DATA INTO TABLE */
+						--EXEC ('INSERT INTO [Staging].dev.'+ @TABLENAME + ' (' + @TABLECOLS + ') SELECT ' + @TABLECOLS + ' FROM [InFormV3_UAT].dbo.' + @TABLENAME)
+						-- Note use of infinite loop so it doesnt evaluate counts and uses break. will be alot faster. 
+						-- Note batch size was defined in case backup is changed from simple to full in future.
+						--PRINT @TABLENAME
+						--EXEC ('DECLARE @BatchSize int SET @BatchSize = 1000 WHILE 1=1 BEGIN INSERT INTO [Naweesh_UAT].[dbo].' + @TABLENAME + ' (' + @TABLECOLS + ') SELECT TOP (@BatchSize) ' + @TABLECOLS + ' FROM ( SELECT * FROM [InFormV3_UAT].[dbo].' + @TABLENAME + ' EXCEPT SELECT * FROM [Naweesh_UAT].[dbo].' + @TABLENAME + ') L1 IF @@ROWCOUNT < @BatchSize BREAK END')
+						-- SET IDENTITY_INSERT [Naweesh_UAT].dbo.SysXmlImport ON
+						/* THIS IS TO BE REVIEWED, WE WILL MOVE THE IDENTITIES OUT TO THE BEGINNING AND END. */
+						
+						/* TURN OFF ALLOWING TO COPY IDENTITIES */
+						/*
+						IF EXISTS (SELECT TOP 1 * FROM [InFormV3_UAT].sys.identity_columns
+						WHERE object_id = (
+								SELECT id
+								FROM sysobjects
+								WHERE name = @TABLENAME
+										  )
+								  )
+						BEGIN
+							PRINT 'IDENTITY OFF'
+							PRINT @TABLENAME
+							EXEC ('SET IDENTITY_INSERT [Naweesh_UAT].dbo.' + @TABLENAME + ' OFF')
+						END
+						*/ -- COMMENTED AS ADDED THE IDENITY INSERT TABLE OFF IN THE INSERT LOOP
+
+						-- LOGGING VALIDATION
+						EXEC ('SELECT * INTO #TEMPCOLUMNMATCH FROM (SELECT [TABLE_NAME],[COLUMN_NAME],[ORDINAL_POSITION],[COLUMN_DEFAULT],[IS_NULLABLE],[DATA_TYPE],[CHARACTER_MAXIMUM_LENGTH],[CHARACTER_OCTET_LENGTH],[NUMERIC_PRECISION],[NUMERIC_PRECISION_RADIX],[NUMERIC_SCALE],[DATETIME_PRECISION],[CHARACTER_SET_CATALOG],[CHARACTER_SET_SCHEMA],[CHARACTER_SET_NAME],[COLLATION_CATALOG],[COLLATION_SCHEMA],[COLLATION_NAME],[DOMAIN_CATALOG],[DOMAIN_SCHEMA],[DOMAIN_NAME]  FROM [Naweesh_UAT].INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG=''Naweesh_UAT'' AND TABLE_NAME=''' + @TABLENAME + ''' EXCEPT SELECT [TABLE_NAME],[COLUMN_NAME],[ORDINAL_POSITION],[COLUMN_DEFAULT],[IS_NULLABLE],[DATA_TYPE],[CHARACTER_MAXIMUM_LENGTH],[CHARACTER_OCTET_LENGTH],[NUMERIC_PRECISION],[NUMERIC_PRECISION_RADIX],[NUMERIC_SCALE],[DATETIME_PRECISION],[CHARACTER_SET_CATALOG],[CHARACTER_SET_SCHEMA],[CHARACTER_SET_NAME],[COLLATION_CATALOG],[COLLATION_SCHEMA],[COLLATION_NAME],[DOMAIN_CATALOG],[DOMAIN_SCHEMA],[DOMAIN_NAME]  FROM [InFormV3_UAT].INFORMATION_SCHEMA.COLUMNS WHERE TABLE_CATALOG=''InFormV3_UAT'' AND TABLE_NAME=''' + @TABLENAME + ''') L1')
+
+							IF (@@ROWCOUNT > 1) 
+								INSERT INTO [Staging].[dev].[DatabaseRefresh] ([Table],[Type],[Result]) VALUES (@TABLENAME,'DataType',0)
+							ELSE 
+								INSERT INTO [Staging].[dev].[DatabaseRefresh] ([Table],[Type],[Result]) VALUES (@TABLENAME,'DataType',1)
+
+						EXEC ('SELECT * INTO #TEMPDATAMATCH FROM ( SELECT * FROM [InFormV3_UAT].dbo.' + @TABLENAME + ' EXCEPT SELECT * FROM [Naweesh_UAT].dbo.' + @TABLENAME + ')L2')
+
+							 IF (@@ROWCOUNT > 1) 
+								INSERT INTO [Staging].[dev].[DatabaseRefresh] ([Table],[Type],[Result]) VALUES (@TABLENAME,'DataValues',0)
+							 ELSE 
+								INSERT INTO [Staging].[dev].[DatabaseRefresh] ([Table],[Type],[Result]) VALUES (@TABLENAME,'DataValues',1)
+
+
+
+FETCH NEXT FROM GETTABLE INTO @GETTABLE
+END
+
+CLOSE GETTABLE
+DEALLOCATE GETTABLE
