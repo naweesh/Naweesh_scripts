@@ -1,0 +1,91 @@
+We are first loading the foreign keys and constraints before dropping them and then producing to truncate and load external data.
+
+
+	EXEC [dbo].[DDLLockRequestSet] --NG UAT
+						@UserName = 'Naweesh_dbrefreshscript'  ,
+						@Note = 'testing_dbrefresh_onbackupdb'
+
+	USE [Naweesh_UAT]
+
+
+
+	/* THE BELOW CONSTRUCTS THE CREATE QUERIES, WE DO THIS BEFORE WE DO THE DROP */
+						IF OBJECT_ID('Staging.dev.RECREATEFK','U') IS NOT NULL DROP TABLE Staging.dev.RECREATEFK
+
+						CREATE TABLE Staging.dev.RECREATEFK
+						(
+							[ROWNUMBER] [int] NOT NULL,
+							[RECREATESTATEMENTS] [nvarchar](MAX) NOT NULL
+						)
+
+							INSERT INTO Staging.dev.RECREATEFK (ROWNUMBER,RECREATESTATEMENTS)
+							SELECT ROW_NUMBER() OVER (ORDER BY FK.NAME) AS ROWNUMBER,'
+							ALTER TABLE ' 
+							   + QUOTENAME(cs.name) + '.' + QUOTENAME(ct.name) 
+							   + ' WITH NOCHECK ADD CONSTRAINT ' + QUOTENAME(fk.name)   --ADDED WITH NOCHECK AS TEST
+							   + ' FOREIGN KEY (' + STUFF((SELECT ',' + QUOTENAME(c.name)
+
+							   -- get all the columns in the constraint table
+								FROM sys.columns AS c 
+								INNER JOIN sys.foreign_key_columns AS fkc 
+								ON fkc.parent_column_id = c.column_id
+								AND fkc.parent_object_id = c.[object_id]
+								WHERE fkc.constraint_object_id = fk.[object_id]
+								ORDER BY fkc.constraint_column_id 
+								FOR XML PATH(N''), TYPE).value(N'.[1]', N'nvarchar(max)'), 1, 1, N'')
+							  + ') REFERENCES ' + QUOTENAME(rs.name) + '.' + QUOTENAME(rt.name)
+							  + '(' + STUFF((SELECT ',' + QUOTENAME(c.name)
+							   -- get all the referenced columns
+								FROM sys.columns AS c 
+								INNER JOIN sys.foreign_key_columns AS fkc 
+								ON fkc.referenced_column_id = c.column_id
+								AND fkc.referenced_object_id = c.[object_id]
+								WHERE fkc.constraint_object_id = fk.[object_id]
+								ORDER BY fkc.constraint_column_id 
+								FOR XML PATH(N''), TYPE).value(N'.[1]', N'nvarchar(max)'), 1, 1, N'') + ')' AS RECREATESTATEMENTS
+							FROM sys.foreign_keys AS fk
+							INNER JOIN sys.tables AS rt -- referenced table
+							  ON fk.referenced_object_id = rt.[object_id]
+							INNER JOIN sys.schemas AS rs 
+							  ON rt.[schema_id] = rs.[schema_id]
+							INNER JOIN sys.tables AS ct -- constraint table
+							  ON fk.parent_object_id = ct.[object_id]
+							INNER JOIN sys.schemas AS cs 
+							  ON ct.[schema_id] = cs.[schema_id]
+							WHERE rt.is_ms_shipped = 0 AND ct.is_ms_shipped = 0
+
+
+		/* THE BELOW DROPS THE CONSTRAINTS */
+
+						IF OBJECT_ID('Staging.dev.testtable','U') IS NOT NULL DROP TABLE Staging.dev.testtable
+						IF OBJECT_ID('Staging.dev.dropsource','U') IS NOT NULL DROP TABLE Staging.dev.dropsource
+
+						SELECT ROW_NUMBER() OVER (ORDER BY S.NAME,T.NAME, FK.NAME) AS ROWNUMBER, S.NAME SCHEMACOL,T.NAME TABLECOL,FK.NAME FKCOL
+						INTO Staging.dev.dropsource
+						  FROM SYS.foreign_keys FK
+						  INNER JOIN SYS.tables T
+						  ON FK.parent_object_id = T.object_id
+						  INNER JOIN SYS.schemas S
+						  ON T.schema_id = S.schema_id
+
+						DECLARE @I INT
+						SET @I = 1
+						DECLARE @TS NVARCHAR(MAX) --TEST
+						DECLARE @SCHEMACOL NVARCHAR(MAX)
+						DECLARE @TABLECOL NVARCHAR(MAX)
+						DECLARE @FKCOL NVARCHAR(MAX)
+						WHILE ((SELECT COUNT(*) FROM Staging.dev.dropsource) >= 1)
+						BEGIN
+							SELECT @SCHEMACOL = (SELECT TOP 1 SCHEMACOL FROM Staging.dev.dropsource WHERE ROWNUMBER = @I)
+							SELECT @TABLECOL = (SELECT TOP 1 TABLECOL FROM Staging.dev.dropsource WHERE ROWNUMBER = @I)
+							SELECT @FKCOL = (SELECT TOP 1 FKCOL FROM Staging.dev.dropsource WHERE ROWNUMBER = @I)
+
+							SET @TS = ('ALTER TABLE Naweesh_UAT.' + QUOTENAME(@SCHEMACOL) + '.' + QUOTENAME(@TABLECOL) 
+							+ ' DROP CONSTRAINT ' + QUOTENAME(@FKCOL))
+
+							EXECUTE sp_executesql @TS
+							PRINT @TS
+							DELETE Staging.dev.dropsource WHERE ROWNUMBER = @I
+							SET @I += 1
+	
+						END
