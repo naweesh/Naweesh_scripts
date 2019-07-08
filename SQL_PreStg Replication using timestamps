@@ -1,0 +1,108 @@
+The below illustrates replication of Prestaging data from source link to staging data repository. 
+
+This uses timestamp columns to mark replication on the RunStream (RunTable) of the EDW.
+
+
+USE [EDR]
+GO
+/****** Object:  StoredProcedure [dbo].[ReplicateSubOut1]    Script Date: 8/07/2019 4:27:57 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		<Author,,Name>
+-- Create date: <Create Date,,>
+-- Description:	<Description,,>
+-- =============================================
+ALTER PROCEDURE [dbo].[ReplicateSubOut1] 
+
+
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+
+/****** Object:  StoredProcedure [dbo].[ReplicateSubOut1]    Script Date: 20/06/2018 4:11:44 AM ******/
+
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+
+
+		DECLARE @BatchSize INT
+		DECLARE @PrevLastChangeKey binary(8) 
+
+
+		SELECT @BatchSize = [BatchSize]
+			  ,@PrevLastChangeKey = [LastChangeKey]
+		FROM [dbo].[RunStream] WHERE [Table] = 'SubOut1' AND [Database] = 'EDR'
+
+WHILE (@@ROWCOUNT > 0)
+BEGIN
+
+		DECLARE @CurrentValue INT
+		SET @CurrentValue = (SELECT MAX(SubOut1Id) FROM [dbo].[SubOut1])
+
+
+		
+			INSERT INTO [dbo].[SubOut1] 
+			(
+				[SubOut1Id]
+				  ,[SubOut2]
+				  ,[SubOut3]
+				  ,[SubOut4]
+				  ,[SubOut1]
+				  ,[SubOut5]
+				  ,[SubOut6]
+				  ,[LastChangeTime]
+				  --,[LastChangeKey]
+				  ,[RevisedBy]
+			)
+			SELECT TOP (@BatchSize) 
+				[Id]
+				  ,[SubOut2]
+				  ,[SubOut3]
+				  ,[SubOut4]
+				  ,[SubOut1]
+				  ,[SubOut5]
+				  ,[SubOut6]
+				  ,[LastChangeTime]
+				  --,[LastChangeKey]
+				  ,[RevisedBy]
+			  FROM [dbo].[SOURCE_SubOut1]
+			  WHERE [Id] > @CurrentValue
+				ORDER BY [Id] ASC
+
+END
+
+
+		UPDATE [dbo].[SubOut1]
+		SET 
+		[SubOut2] = A.[SubOut2]
+      ,[SubOut3] = A.[SubOut3]
+      ,[SubOut4] = A.[SubOut4]
+      ,[SubOut1] = A.[SubOut1]
+      ,[SubOut5] = A.[SubOut5]
+      ,[SubOut6] = A.[SubOut6]
+      ,[LastChangeTime] = A.[LastChangeTime]
+      --,[LastChangeKey] = A.[LastChangeKey]
+      ,[RevisedBy] = A.[RevisedBy]
+		FROM
+			[dbo].[SOURCE_SubOut1] A
+		INNER JOIN [dbo].[SubOut1] B ON A.Id=B.SubOut1Id	
+		WHERE A.[LastChangeKey] > @PrevLastChangeKey
+
+
+DECLARE @LastChangeKey binary(8) 
+SET @LastChangeKey = (SELECT CAST(MAX(LastChangeKey) as binary(8)) FROM [dbo].[SOURCE_SubOut1])
+
+
+UPDATE [dbo].[RunStream]
+SET [LastChangeKey] = @LastChangeKey
+, [LastRunTime] = GETDATE()
+WHERE [Table] = 'SubOut1' AND [Database] = 'EDR'
+
+
+END
