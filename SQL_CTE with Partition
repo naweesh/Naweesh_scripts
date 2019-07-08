@@ -1,0 +1,96 @@
+The below illustrates using the power of an CTE with the power of partitioning base tables for uniqueness. 
+
+My favourite feature the beloved partition.
+
+
+USE [ODS]
+GO
+/****** Object:  StoredProcedure [dbo].[hrBreakdown]    Script Date: 8/07/2019 2:16:10 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		<Author,,Name>
+-- Create date: <Create Date,,>
+-- Description:	<Description,,>
+-- =============================================
+ALTER PROCEDURE [dbo].[hrBreakdown]
+@peroidselection INT
+	
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+	-- setup the period
+	IF @peroidselection IS NULL OR @peroidselection = ''
+	BEGIN
+		 SET @peroidselection = (SELECT MAX(periodId) FROM [pmp].[DimPeriod])
+	END
+
+
+	;WITH FilteredTalentCTE (ColSub1, ColSub2, ColSub3, ColSub4, ColSub5, ColSub6, ColSub7, ColSub8, ColSub9 )
+				AS
+					(
+						SELECT ColSub1, ColSub2, ColSub3, ColSub4, ColSub5, ColSub6, ColSub7, ColSub8, ColSub9 FROM
+								(
+									SELECT ROW_NUMBER() OVER (PARTITION BY ColSub2 ORDER BY ColSub1 DESC) AS [Row],
+									[data].* FROM
+												(
+													--SELECT * FROM [pmp].[FactTalent] WHERE ColSub7 = 1
+													SELECT * FROM [pmp].[FactTalent] WHERE ColSub7 = @peroidselection
+													--@peroidselection
+												) AS [data]
+						) as data2 where data2.[Row] = 1
+					),
+					BaseCTE AS
+					(
+					SELECT 
+					   J.[ColSub10]
+					  ,F.[ColSub8]
+					  ,J.[ColSub11] 
+				,CASE WHEN S.[formStatus] IN ('11.Goal_Submitted','01.Goal_Ackowledged','02.Goal_Review_InProgress') THEN '2. Manager Pending Action'
+										WHEN S.[formStatus] IN ('03.Goal_Review_Actioned','05.Goal_Planning_Completed','12.Form_Completed') THEN '3. Completed'
+										ELSE '1. Employee Pending Action'
+						END AS [ColSub12]
+					  ,CONCAT(P.[year],' - ',P.[period]) PMPPeroid
+				 FROM FilteredTalentCTE F
+					RIGHT JOIN [pmp].[DimJob] J ON F.[ColSub6] = J.ColSub6
+					RIGHT JOIN [pmp].[DimColSub12] S ON F.ColSub9 = S.ColSub9
+					RIGHT JOIN [pmp].[DimPeriod] P ON F.ColSub7 = P.ColSub7
+			),
+		AggregateTotal AS
+		(	
+			SELECT [ColSub10], [ColSub8], [ColSub11], PMPPeroid, [ColSub12], COUNT(*) TotalUsers, 1 AS Differentier
+				FROM BaseCTE
+				GROUP BY [ColSub10], [ColSub8], [ColSub11], PMPPeroid, [ColSub12]
+				UNION ALL
+
+				SELECT B.[ColSub10], B.[ColSub8], B.[ColSub11], B.PMPPeroid, '1. Employee Pending Action' AS [ColSub12], 0 AS TotalUsers, 2 AS Differentier
+				FROM BaseCTE B
+				GROUP BY B.[ColSub10], B.[ColSub8], B.[ColSub11], B.PMPPeroid, [ColSub12]
+
+				UNION ALL
+
+				SELECT B.[ColSub10], B.[ColSub8], B.[ColSub11], B.PMPPeroid, '2. Manager Pending Action' AS [ColSub12], 0 AS TotalUsers, 2 AS Differentier
+				FROM BaseCTE B
+				GROUP BY B.[ColSub10], B.[ColSub8], B.[ColSub11], B.PMPPeroid, [ColSub12]
+				UNION ALL
+
+				SELECT B.[ColSub10], B.[ColSub8], B.[ColSub11], B.PMPPeroid, '3. Completed' AS [ColSub12], 0 AS TotalUsers, 2 AS Differentier
+				FROM BaseCTE B
+				GROUP BY B.[ColSub10], B.[ColSub8], B.[ColSub11], B.PMPPeroid, [ColSub12]		
+		)
+		SELECT [ColSub10], [ColSub8], [ColSub11], PMPPeroid, [ColSub12], TotalUsers
+		 FROM
+							(
+							SELECT
+				ROW_NUMBER() OVER (PARTITION BY [ColSub10], [ColSub8], [ColSub11], PMPPeroid, [ColSub12] ORDER BY Differentier ASC) AS ROW,
+							data.* FROM
+								( 
+									SELECT [ColSub10], [ColSub8], [ColSub11], PMPPeroid, [ColSub12], TotalUsers, Differentier FROM AggregateTotal
+								) AS data
+							) AS data2 WHERE data2.ROW = 1
+
