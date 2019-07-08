@@ -1,0 +1,111 @@
+The below illustrates using a recursive common table expression to create a heirarchy result set.
+
+
+USE [ODS]
+GO
+/****** Object:  StoredProcedure [dbo].[TreeView]    Script Date: 8/07/2019 2:06:25 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		Naweesh Rao
+-- Create date: 26/04/2019
+-- Description:	<Description,,>
+-- =============================================
+ALTER PROCEDURE [dbo].[TreeView]
+	@UserIdValue NVARCHAR(15),
+	@UserSelection NVARCHAR(15),
+	@peroidselection INT
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+
+	SET @UserIdValue = (SELECT SUBSTRING(@UserIdValue,PATINDEX('%\%',@UserIdValue)+1,LEN(@UserIdValue)-3))
+
+	IF @UserSelection <> @UserIdValue
+	BEGIN
+		SET @UserIdValue = @UserSelection
+	END
+
+
+	-- setup the period
+	IF @peroidselection IS NULL OR @peroidselection = ''
+	BEGIN
+		 SET @peroidselection = (SELECT MAX(periodId) FROM [pmp].[DimPeriod])
+	END
+
+
+
+				;WITH FilteredTalentCTE (talentId, myId, fullName, managerId, goalReviewId, jobId, periodId)
+				AS
+					(
+						SELECT Column1SubstituedOut, Column2SubstituedOut, Column3SubstituedOut, Column4SubstituedOut, Column5SubstituedOut, Column6SubstituedOut, Column7SubstituedOut FROM
+								(
+									SELECT ROW_NUMBER() OVER (PARTITION BY Column2SubstituedOut ORDER BY Column1SubstituedOut DESC) AS [Row],
+									[data].* FROM
+												(
+													SELECT * FROM [pmp].[FactTalent] WHERE Column7SubstituedOut = @peroidselection
+												) AS [data]
+						) as data2 where data2.[Row] = 1
+					),
+					TopReporter AS
+					(
+							SELECT 
+								M.Sub1
+								,M.Sub2
+								,T.Column2SubstituedOut AS employeeColumn2SubstituedOut
+								,T.Column3SubstituedOut AS Sub3
+								, 0 AS Level
+								,CASE WHEN G.Column8SubstituedOut = 'Acknowledged' THEN 2 ELSE 0  
+									END AS [Column9SubstituedOut]
+								,CASE WHEN G.DimSub5 = 'Reviewed' THEN 2 ELSE 0
+									END AS [managerReview]
+								,D.department AS employeeDepartment
+								,D.jobTitle
+							FROM FilteredTalentCTE T
+							LEFT JOIN [pmp].[DimSub1] M ON T.Column4SubstituedOut = M.Column4SubstituedOut
+							LEFT JOIN [pmp].[DimSub2] G ON T.Column5SubstituedOut = G.Column5SubstituedOut
+							LEFT JOIN [pmp].[DimSub3] D ON T.Column6SubstituedOut = D.Column6SubstituedOut
+							LEFT JOIN [pmp].[DimSub4] P ON T.Column7SubstituedOut = P.Column7SubstituedOut 
+							WHERE T.Column2SubstituedOut = @UserIdValue
+						UNION ALL
+							SELECT 
+								M.Sub1
+								,M.Sub2
+								,T.Column2SubstituedOut
+								,T.Column3SubstituedOut
+								,Level + 1
+								,CASE WHEN G.Column8SubstituedOut = 'Acknowledged' THEN 2 ELSE 0  
+									END AS [Column9SubstituedOut]
+								,CASE WHEN G.DimSub5 = 'Reviewed' THEN 2 ELSE 0
+									END AS [managerReview]
+								,D.department
+								,D.jobTitle
+							FROM FilteredTalentCTE T
+							INNER JOIN [pmp].[DimSub1] M ON T.Column4SubstituedOut = M.Column4SubstituedOut
+							INNER JOIN [pmp].[DimSub2] G ON T.Column5SubstituedOut = G.Column5SubstituedOut
+							INNER JOIN [pmp].[DimSub3] D ON T.Column6SubstituedOut = D.Column6SubstituedOut
+							INNER JOIN [pmp].[DimSub4] P ON T.Column7SubstituedOut = P.Column7SubstituedOut 
+							INNER JOIN TopReporter H2 ON M.Sub2 = H2.[EmployeeColumn2SubstituedOut] 
+						)
+							SELECT 
+							[Sub1]
+							,[Sub2]
+							,[employeeColumn2SubstituedOut]
+							,[Sub3]
+							,[employeeDepartment]
+							,[jobTitle]
+							, COUNT(NULLIF([Column9SubstituedOut],0)) AS CountofSubmission
+							, COUNT(NULLIF([managerReview],0)) AS CountofReview
+							FROM TopReporter
+							-- WHERE [Level]<>0
+							GROUP BY Sub3, employeeColumn2SubstituedOut, Sub1, Sub2, employeeDepartment, jobTitle
+							;
+
+		END
+
+
