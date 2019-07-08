@@ -1,0 +1,52 @@
+We have to remove the triggers, however have to store the triggers in order recreate after loading in external source data. 
+
+USE [Naweesh_UAT]
+
+IF OBJECT_ID('STAGING.DEV.TRIGGERLIST','U') IS NOT NULL DROP TABLE STAGING.DEV.TRIGGERLIST
+IF OBJECT_ID('TEMPDB.DEV.#TRIGGERLIST','U') IS NOT NULL DROP TABLE #TRIGGERLIST
+
+SELECT 
+     sysobjects.name AS trigger_name 
+    ,USER_NAME(sysobjects.uid) AS trigger_owner 
+    ,s.name AS table_schema 
+    ,OBJECT_NAME(parent_obj) AS table_name 
+    ,OBJECTPROPERTY( id, 'ExecIsUpdateTrigger') AS isupdate 
+    ,OBJECTPROPERTY( id, 'ExecIsDeleteTrigger') AS isdelete 
+    ,OBJECTPROPERTY( id, 'ExecIsInsertTrigger') AS isinsert 
+    ,OBJECTPROPERTY( id, 'ExecIsAfterTrigger') AS isafter 
+    ,OBJECTPROPERTY( id, 'ExecIsInsteadOfTrigger') AS isinsteadof 
+    ,OBJECTPROPERTY(id, 'ExecIsTriggerDisabled') AS [disabled] 
+INTO #TRIGGERLIST
+FROM sysobjects 
+INNER JOIN sysusers 
+    ON sysobjects.uid = sysusers.uid 
+
+INNER JOIN sys.tables t 
+    ON sysobjects.parent_obj = t.object_id 
+
+INNER JOIN sys.schemas s 
+    ON t.schema_id = s.schema_id 
+
+WHERE sysobjects.type = 'TR' 
+
+SELECT ROW_NUMBER() OVER (ORDER BY trigger_name) AS ROWNUMBER,* 
+INTO STAGING.DEV.TRIGGERLIST
+FROM #TRIGGERLIST WHERE [disabled] = 0
+-- SELECT * FROM #TRIGGERLIST
+/* BELOW DISABLES TRIGGERS */
+DECLARE @TRIGGERNAME NVARCHAR(MAX)
+DECLARE @TRIGGERSQL NVARCHAR(MAX)
+DECLARE @TRIGGERSCHEMA NVARCHAR(MAX)
+DECLARE @TRIGGERTABLE NVARCHAR(MAX)
+DECLARE @I INT
+SET @I = 1
+WHILE (@I < (SELECT COUNT(*) FROM STAGING.DEV.TRIGGERLIST)) --SELECT * FROM STAGING.DEV.TRIGGERLIST
+BEGIN	-- disable trigger dbo.triggername on dbo.tablename
+	SET @TRIGGERNAME = (SELECT TOP 1 trigger_name FROM STAGING.DEV.TRIGGERLIST WHERE ROWNUMBER = @I)
+	SET @TRIGGERSCHEMA = (SELECT TOP 1 table_schema FROM STAGING.DEV.TRIGGERLIST WHERE trigger_name = @TRIGGERNAME)
+	SET @TRIGGERTABLE = (SELECT TOP 1 table_name FROM STAGING.DEV.TRIGGERLIST WHERE trigger_name = @TRIGGERNAME)
+	SET @TRIGGERSQL = ('DISABLE TRIGGER ' + @TRIGGERSCHEMA + '.' + @TRIGGERNAME + ' ON ' + @TRIGGERSCHEMA + '.' + @TRIGGERTABLE)
+	EXEC (@TRIGGERSQL)
+	PRINT @TRIGGERSQL
+	SET @I += 1
+END
