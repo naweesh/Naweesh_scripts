@@ -1,0 +1,279 @@
+The below is script that is alot more simple than Hallengren's but i find this really quick and well tailored for given servers 
+in this given environment that dynamically reorganizes, reindex's and even updates statistics with novel conditions such as page counts. 
+
+I also added error logging and using throw exceptions that initiates rollbacks. 
+
+-- DEFINE SETTINGS
+
+DECLARE @DBNAME NVARCHAR(20) = (SELECT DB_NAME())
+DECLARE @FreeSpace INT	
+DECLARE @FINALLOG INT
+DECLARE @CURRENTLOG INT
+
+DECLARE @ISENTERPRISE BIT
+SET @ISENTERPRISE = (
+					SELECT
+						CASE (SELECT SERVERPROPERTY('EditionID'))
+						WHEN 1804890536 THEN 1 --This is enterprise editionid
+						ELSE 0
+						END AS 'EditionID'
+					)
+
+DECLARE @ErrorNumber INT
+DECLARE @ErrorState INT
+DECLARE @ErrorProcedure NVARCHAR(128)
+DECLARE @ErrorLine INT
+DECLARE @ErrorMessage NVARCHAR(4000)
+DECLARE @spid INT
+DECLARE @programname NVARCHAR(128)
+
+
+-- THE BELOW SET'S UP THE GRACEFUL EXIT
+DECLARE @COMMANDLOGCOUNTER INT
+SET @COMMANDLOGCOUNTER = 1
+
+DECLARE @NUMOFHOUR_WINDOW INT
+SET @NUMOFHOUR_WINDOW = 2
+
+DECLARE @END_TIME DATETIME 
+SET @END_TIME = (SELECT DATEADD(HOUR,@NUMOFHOUR_WINDOW,SYSDATETIME()))
+
+WHILE (SELECT SYSDATETIME()) < @END_TIME AND @COMMANDLOGCOUNTER<>0
+
+	BEGIN
+
+		-- THE BELOW CREATES THE COMMANDLOG USED TO ITERATE OVER THE TARGETS
+
+		IF OBJECT_ID('TEMPDB..##CommandFragmentationLog') IS NOT NULL DROP TABLE ##CommandFragmentationLog
+
+		SELECT [Row] = ROW_NUMBER() OVER (ORDER BY [Indexsize(MB)]),* 
+		INTO ##CommandFragmentationLog
+		FROM
+			( 
+				SELECT 
+				dbtables.[name] as 'Table', 
+				dbschemas.[name] as 'Schema', 
+				dbindexes.[name] as 'Index',
+				--indexstats.alloc_unit_type_desc,
+				CAST((indexstats.avg_fragmentation_in_percent) AS DECIMAL(18,2)) AS 'Avg Frag Percent',
+				indexstats.page_count 'Page Count',
+				(8 * SUM(allocs.used_pages))/1024 AS 'Indexsize(MB)',
+				CAST((2.1 * 8 * SUM(allocs.used_pages)/1024) AS DECIMAL(18,2)) AS 'Projected Size for Rebuild(MB)' -- set ratio to 2.1 due to online builds, didnt bother as an variable
+				FROM sys.dm_db_index_physical_stats (DB_ID(), NULL, NULL, NULL, NULL) AS indexstats 
+				INNER JOIN sys.tables dbtables with (nolock) on dbtables.[object_id] = indexstats.[object_id]
+				INNER JOIN sys.schemas dbschemas with (nolock) on dbtables.[schema_id] = dbschemas.[schema_id]
+				INNER JOIN sys.indexes dbindexes with (nolock) ON dbindexes.[object_id] = indexstats.[object_id]
+				INNER JOIN sys.objects objs with (nolock) ON dbindexes.object_id = objs.object_id
+				INNER JOIN sys.partitions partits with (nolock) ON partits.OBJECT_ID = dbindexes.OBJECT_ID AND partits.index_id = dbindexes.index_id
+				INNER JOIN sys.allocation_units AS allocs ON allocs.container_id = partits.partition_id
+				AND indexstats.index_id = dbindexes.index_id
+				WHERE indexstats.database_id = DB_ID() 
+					AND indexstats.page_count > 1000 --do not bother with indexs that are less than 1000 pages
+					AND indexstats.alloc_unit_type_desc = 'IN_ROW_DATA' --only work with row data
+					AND objs.[type] = 'U'
+					AND dbindexes.[name] IS NOT NULL
+					AND indexstats.avg_fragmentation_in_percent > 5
+				GROUP BY dbtables.[name], dbschemas.[name], dbindexes.[name], indexstats.alloc_unit_type_desc, indexstats.avg_fragmentation_in_percent, indexstats.page_count
+			) A
+
+
+			-- LETS START ITERATING OVER COMMANDLOG
+
+			DECLARE @TableLog NVARCHAR(50)
+			DECLARE @SchemaLog NVARCHAR(50)
+			DECLARE @IndexLog NVARCHAR(50)
+			DECLARE @FragLog FLOAT
+			DECLARE @ProjSize FLOAT
+			DECLARE @command NVARCHAR(255)
+
+			SET @FINALLOG = (SELECT COUNT(*) FROM ##CommandFragmentationLog)
+			SET @CURRENTLOG = 1
+
+
+			WHILE @CURRENTLOG <= @FINALLOG AND @FINALLOG<>0
+			BEGIN
+
+				--LETS FIRSTLY GET THE AVAILABLE DISK SPACE FOR TLOGS TO GROW IN
+				-- THE BELOW IS IN MB'S
+				SELECT @FreeSpace = 
+					CONVERT(INT,dovs.available_bytes/1048576.0) 
+					FROM sys.master_files mf with (nolock)
+					CROSS APPLY sys.dm_os_volume_stats(mf.database_id, mf.FILE_ID) dovs
+					WHERE dovs.logical_volume_name = 'Logs'
+					AND DB_NAME(dovs.database_id) = @DBNAME
+
+				SELECT @TableLog = [Table], @SchemaLog = [Schema], @IndexLog = [Index], @FragLog = [Avg Frag Percent], @ProjSize = [Projected Size for Rebuild(MB)]
+				FROM ##CommandFragmentationLog
+				WHERE [Row] = @CURRENTLOG
+
+				IF (@FreeSpace > @ProjSize AND @FragLog > 30) -- REBUILD
+					BEGIN
+
+						IF (@ISENTERPRISE = 1)
+							BEGIN TRY
+								PRINT 'Online Rebuild '+ QUOTENAME(@IndexLog) + N' ON '+ QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog)
+								SET @command = N'ALTER INDEX ' + QUOTENAME(@IndexLog) + N' ON '+ QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog) + N' REBUILD WITH (ONLINE = ON)';
+
+								EXEC (@command);
+							END TRY
+
+							BEGIN CATCH
+									
+									SELECT @ErrorNumber = ERROR_NUMBER()
+										, @ErrorState = ERROR_STATE()
+										, @ErrorProcedure = ERROR_PROCEDURE()
+										, @ErrorLine = ERROR_LINE()
+										, @ErrorMessage = ERROR_MESSAGE()
+										, @ErrorMessage = @ErrorMessage + QUOTENAME(@DBNAME) + '.' + QUOTENAME(@SchemaLog) + '.' + QUOTENAME(@TableLog) + 'SPID: ' + @@SPID + ' ON REBUILD OF INDEX, '
+
+										IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+										;THROW --keep semicolon statement terminator
+
+							END CATCH
+
+							-- There is no partitions in this db, so i havent bothered including updating manual stats for index's on partitions
+	
+						ELSE
+							BEGIN TRY
+								PRINT 'Rebuild '+ @IndexLog + N' ON '+ @SchemaLog + N'.' + @TableLog
+								SET @command = N'ALTER INDEX ' + QUOTENAME(@IndexLog) + N' ON '+ QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog) + N' REBUILD';
+
+								EXEC (@command);
+							END TRY
+
+							BEGIN CATCH
+									
+									SELECT @ErrorNumber = ERROR_NUMBER()
+										, @ErrorState = ERROR_STATE()
+										, @ErrorProcedure = ERROR_PROCEDURE()
+										, @ErrorLine = ERROR_LINE()
+										, @ErrorMessage = ERROR_MESSAGE()
+										, @ErrorMessage = @ErrorMessage + QUOTENAME(@DBNAME) + '.' + QUOTENAME(@SchemaLog) + '.' + QUOTENAME(@TableLog) + 'SPID: ' + @@SPID + ' ON REBUILD OF INDEX, '
+
+										IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+										;THROW --keep semicolon statement terminator
+
+							END CATCH
+
+					END
+
+
+				IF (@FragLog BETWEEN 5 AND 30) -- REORGANISE
+					BEGIN TRY
+						PRINT 'Reorganize '+ QUOTENAME(@IndexLog) + N' ON '+ QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog)
+
+						SET @command = N'ALTER INDEX ' + QUOTENAME(@IndexLog) + N' ON ' + QUOTENAME(@dbName) + N'.' + QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog) + N' REORGANIZE'; 
+
+						EXEC (@command);
+
+					END TRY
+
+					BEGIN CATCH
+									
+							SELECT @ErrorNumber = ERROR_NUMBER()
+								, @ErrorState = ERROR_STATE()
+								, @ErrorProcedure = ERROR_PROCEDURE()
+								, @ErrorLine = ERROR_LINE()
+								, @ErrorMessage = ERROR_MESSAGE()
+								, @ErrorMessage = @ErrorMessage + QUOTENAME(@DBNAME) + '.' + QUOTENAME(@SchemaLog) + '.' + QUOTENAME(@TableLog) + 'SPID: ' + @@SPID + ' ON REORGANISE OF INDEX, '
+
+								IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+								;THROW --keep semicolon statement terminator
+
+					END CATCH
+
+				SET @CURRENTLOG += 1 -- INCREMENT		
+
+			END
+		
+			-- LETS UPDATE STATS
+
+			IF OBJECT_ID('TEMPDB..##CommandStatsLog') IS NOT NULL DROP TABLE ##CommandStatsLog
+
+			DECLARE @StatsCount INT
+			DECLARE @StatsFinal INT
+
+
+			-- LETS CREATE COMMANDLOGSTATS
+
+			SELECT DISTINCT tablename, schemaname
+			,ROW_NUMBER() OVER (ORDER BY [rows]) as RowNum,
+			statistics_update_date,rowmodctr, rows
+			INTO ##CommandStatsLog
+			FROM 
+			(
+				SELECT 
+					tablename=object_name(i.object_id)
+					--, index_name=i.[name]
+					, statistics_update_date = STATS_DATE(i.object_id, i.index_id)
+					, si.rowmodctr
+					,p.rows
+					,ss.name as schemaname
+				FROM sys.indexes i (nolock)
+				JOIN sys.objects o (nolock) on
+					i.object_id=o.object_id
+				JOIN sys.sysindexes si (nolock) on
+					i.object_id=si.id
+					and i.index_id=si.indid
+				INNER JOIN sys.partitions p with (nolock)
+					on p.object_id = i.object_id
+				INNER JOIN sys.schemas ss with (nolock)
+					on ss.schema_id = o.schema_id
+				where
+					o.type <> 'S'  --ignore system objects
+					and o.type_desc = 'USER_TABLE'
+					and STATS_DATE(i.object_id, i.index_id) is not null
+					AND STATS_DATE(i.object_id, i.index_id) < (SELECT GETDATE()-30)
+					AND P.rows > 0
+			) B
+			WHERE statistics_update_date < DATEADD(DAY,-3,SYSDATETIME())
+			AND (rowmodctr / [rows]) > 0.2
+			AND rows > 500
+			ORDER BY RowNum
+
+			SET @StatsCount = 1
+			SET @StatsFinal = (SELECT COUNT(*) FROM ##CommandStatsLog)
+
+
+			WHILE @StatsCount <= @StatsFinal AND @StatsFinal<>0
+			BEGIN TRY
+				SELECT @TableLog = tablename, @SchemaLog = schemaname 
+				FROM ##CommandStatsLog
+				WHERE RowNum = @StatsCount
+
+				PRINT 'Updating Statistics Full Scan ON '+ QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog) --db is very small so leaving to fullscan as maintenance window is wide
+
+				SET @command = N'UPDATE STATISTICS ' + QUOTENAME(@SchemaLog) + N'.' + QUOTENAME(@TableLog) + N' WITH FULLSCAN';
+
+				EXEC (@command);
+
+				SET @StatsCount += 1 --INCREMENT
+			END TRY
+
+			BEGIN CATCH
+									
+				SELECT @ErrorNumber = ERROR_NUMBER()
+					, @ErrorState = ERROR_STATE()
+					, @ErrorProcedure = ERROR_PROCEDURE()
+					, @ErrorLine = ERROR_LINE()
+					, @ErrorMessage = ERROR_MESSAGE()
+					, @ErrorMessage = @ErrorMessage + QUOTENAME(@DBNAME) + '.' + QUOTENAME(@SchemaLog) + '.' + QUOTENAME(@TableLog) + 'SPID ' + @@SPID + ' ON CREATING FULL SCAN STATISTICS, '
+
+					IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+					;THROW --keep semicolon statement terminator
+
+			END CATCH
+
+			
+				IF (@CURRENTLOG = @FINALLOG AND @StatsCount = @StatsFinal) OR (@FINALLOG=0 AND @StatsFinal = 0)
+			BEGIN
+				IF OBJECT_ID('TEMPDB..##CommandFragmentationLog') IS NOT NULL DROP TABLE ##CommandFragmentationLog
+				IF OBJECT_ID('TEMPDB..##CommandStatsLog') IS NOT NULL DROP TABLE ##CommandStatsLog
+
+				SET @COMMANDLOGCOUNTER = 0
+			END
+
+
+	END
+
+
