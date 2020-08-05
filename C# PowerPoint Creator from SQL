@@ -1,0 +1,820 @@
+/* This was my first C# script that was more then a simple console script or SSIS script task */
+
+using System;
+using System.Linq;
+using System.IO;
+// allow to open up Powerpoint
+using DocumentFormat.OpenXml.Packaging;
+// allow access presentation specific xml
+using DocumentFormat.OpenXml.Presentation;
+// allow access to drawing specific xml
+using A = DocumentFormat.OpenXml.Drawing;
+// SharePoint 
+//using Microsoft.SharePoint
+// allow to replace text boxes in powerpoint
+//using DocumentFormat.OpenXml.Presentation.Shape
+
+// sql client namespace
+using System.Data;
+using System.Collections.Generic;
+using DocumentFormat.OpenXml.Drawing;
+// test
+
+namespace GovernancePPTX
+{
+    class Test
+    {
+        static int index = 1;
+
+        static void Main(string[] args)
+        {
+
+            bool overflow = false;
+            // const int pageBorder = 3000000;
+            //int pageBorder = 1400;
+            int pageBorder = 2600;
+
+            /*
+            string presentationFile = @"D:\SSIS Projects\GovernancePPTX\output.pptx";
+            string templateFile = @"D:\SSIS Projects\GovernancePPTX\Test.pptx";
+            */
+
+            //string OutputFilename = "Governance " + System.DateTime.Now.ToString("ddMMyyyy") + ".pptx";
+            string OutputFilename = "Governance - " + GetFormattedDate(System.DateTime.Now) + ".pptx";
+            File.Copy("WorkingTemplate4.pptx", OutputFilename, true);
+
+            // File.Copy(templateFile, presentationFile, true);
+            //File.Copy("NewTemplate.pptx", "output.pptx", true);
+            //File.Copy("WorkingTemplate4.pptx", "output.pptx", true);
+
+
+            // open the source document as read/write mode
+            // using (PresentationDocument presentationDocument = PresentationDocument.Open(presentationFile, true))
+            using (PresentationDocument presentationDocument = PresentationDocument.Open(OutputFilename, true))
+            {
+                PresentationPart presPart = presentationDocument.PresentationPart;
+
+                string FirstSlide = SlideRelationShipId(presPart, 1);
+                SlidePart FirstSlidePart = (SlidePart)presPart.GetPartById(FirstSlide);
+               // SwapPlaceholderText(FirstSlidePart, "<Author>", "Cathal Buchanan");
+               // SwapPlaceholderText(FirstSlidePart, "<Job>", "APAC IT Manager");
+
+                DateTime dt = System.DateTime.Now;
+                SwapPlaceholderText(FirstSlidePart, "<Date>", GetFormattedDate(dt));
+
+
+                string FirstTable = SlideRelationShipId(presPart, 8);
+                // rId2
+                // access the following slides and get the SlidePart from the relationship id. 
+                SlidePart sectionSlidePart = (SlidePart)presPart.GetPartById(FirstTable);
+                SlidePart tableSlidePart = (SlidePart)presPart.GetPartById(FirstTable);
+
+
+                ODS_DatabaseDataContext db = new ODS_DatabaseDataContext();
+
+                var PIRCountQuery =
+                            from d in db.ProjectInitiative_PIRCounts
+                                // where d.periodId == 1
+                            select d;
+
+                var BluePrintEstValueQuery =
+                            from s in db.ProjectInitiative_BluePrintEsts
+                            select s;
+
+                string section = "";
+                SlidePart current = null;
+
+                int counter = 0;
+
+                
+
+                foreach (var PIRCount in PIRCountQuery)
+                {
+                    
+                    if (counter == 0)
+                    {
+                        SlidePart newTablePart = CloneSlidePart(presPart, tableSlidePart, "NotSection");
+                        //  SwapPlaceholderText(newTablePart, "Table page", Status);
+                        // test this below
+                        current = newTablePart;
+                        //current = newSlidePart;
+                    }
+
+
+                    /*
+                    SlidePart newTablePart = CloneSlidePart(presPart, tableSlidePart);
+                    current = newTablePart;
+                    */
+
+                    /*
+                    string Status = PIRCount.Status;
+                    string BMMC = Convert.ToString(PIRCount.BMMC);
+                    string C27J = Convert.ToString(PIRCount.C27J);
+                    string HeadOffice = Convert.ToString(PIRCount.Head_Office);
+                    string SPA = Convert.ToString(PIRCount.SPA);
+                    string TLS = Convert.ToString(PIRCount.TLS);
+                    string WSBU = Convert.ToString(PIRCount.WSBU);
+                    string PSBU = Convert.ToString(PIRCount.PSBU);
+                    string GrandTotal = Convert.ToString(PIRCount.GrandTotal);
+                    */
+
+                    string Status = PIRCount.Status;
+                    string BMMC = Convert.ToString(PIRCount.BMMC);
+                    string C27J = Convert.ToString(PIRCount.C27J);
+                    string HeadOffice = Convert.ToString(PIRCount.Head_Office);
+                    string SPA = Convert.ToString(PIRCount.SPA);
+                    string TLS = Convert.ToString(PIRCount.TLS);
+                    string WSBU = Convert.ToString(PIRCount.WSBU);
+                    string PSBU = Convert.ToString(PIRCount.PSBU);
+                    string GrandTotal = Convert.ToString(PIRCount.GrandTotal);
+
+
+
+
+                    counter++;
+
+                    //  CreateSlidesForTable("Section Title", "Section Name");
+                    // DeleteTemplateSlide(presPart, sectionSlidePart, "rId2");
+
+                    
+                    A.Table tbl = current.Slide.Descendants<A.Table>().Last();
+                        A.TableRow tr = new A.TableRow();
+                    tr.Height = 100L;
+                    
+                    tr.Append(CreateTextCell(Status));
+                    tr.Append(CreateTextCell2(BMMC));
+                    tr.Append(CreateTextCell2(C27J));
+                    tr.Append(CreateTextCell2(HeadOffice));
+                    tr.Append(CreateTextCell2(SPA));
+                    tr.Append(CreateTextCell2(TLS));
+                    tr.Append(CreateTextCell2(WSBU));
+                    tr.Append(CreateTextCell2(PSBU));
+                    tr.Append(CreateTextCell2(GrandTotal));
+
+
+                        // append the row to the table, a row to be appended for every product.  
+                        tbl.Append(tr);
+                        // Remove the template slide for the table 1 and 2
+                        //SlideDeletion(presPart, 6); 
+                        
+       
+
+                    
+                    if (counter == 1)
+                    {
+                        foreach (var BluePrintEstValue in BluePrintEstValueQuery)
+                        {
+
+
+                            /*
+                            string BluePrintEst_Status = BluePrintEstValue.Status;
+                            string BluePrintEst_BMMC = Convert.ToString(BluePrintEstValue.BMMC);
+                            string BluePrintEst_C27J = Convert.ToString(BluePrintEstValue.C27J);
+                            string BluePrintEst_HeadOffice = Convert.ToString(BluePrintEstValue.Head_Office);
+                            string BluePrintEst_SPA = Convert.ToString(BluePrintEstValue.SPA);
+                            string BluePrintEst_TLS = Convert.ToString(BluePrintEstValue.TLS);
+                            string BluePrintEst_WSBU = Convert.ToString(BluePrintEstValue.WSBU);
+                            string BluePrintEst_PSBU = Convert.ToString(BluePrintEstValue.PSBU);
+                            string BluePrintEst_GrandTotal = Convert.ToString(BluePrintEstValue.GrandTotal);
+                            */
+
+                            string BluePrintEst_Status = BluePrintEstValue.Status;
+                            string BluePrintEst_BMMC =  string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.BMMC));
+                            string BluePrintEst_C27J = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.C27J));
+                            string BluePrintEst_HeadOffice = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.Head_Office));
+                            string BluePrintEst_SPA = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.SPA));
+                            string BluePrintEst_TLS = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.TLS));
+                            string BluePrintEst_WSBU = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.WSBU));
+                            string BluePrintEst_PSBU = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.PSBU));
+                            string BluePrintEst_GrandTotal = string.Format("{0:C0}", Convert.ToDecimal(BluePrintEstValue.GrandTotal));
+
+                            A.Table tbl2 = current.Slide.Descendants<A.Table>().First();
+                            A.TableRow tr2 = new A.TableRow();
+                            tr2.Height = 100L;
+
+                            tr2.Append(CreateTextCell(BluePrintEst_Status));
+                            tr2.Append(CreateTextCell2(BluePrintEst_BMMC));
+                            tr2.Append(CreateTextCell2(BluePrintEst_C27J));
+                            tr2.Append(CreateTextCell2(BluePrintEst_HeadOffice));
+                            tr2.Append(CreateTextCell2(BluePrintEst_SPA));
+                            tr2.Append(CreateTextCell2(BluePrintEst_TLS));
+                            tr2.Append(CreateTextCell2(BluePrintEst_WSBU));
+                            tr2.Append(CreateTextCell2(BluePrintEst_PSBU));
+                            tr2.Append(CreateTextCell2(BluePrintEst_GrandTotal));
+
+                            tbl2.Append(tr2);
+                        }
+                    }
+                    
+
+                    // Remove the template slide for table 3
+                     //SlideDeletion(presPart, 1);
+                    // this removes the template, testing to comment this and remove the slide itself
+                    //DeleteTemplateSlide(presPart, sectionSlidePart, FirstTable);
+
+                }
+
+
+                string ThirdTable = SlideRelationShipId(presPart, 10);
+                // lets now try for a third table on second separate page.
+                //rId3
+                // access the following slides and get the SlidePart from the relationship id. 
+                SlidePart sectionSlidePartforTable3 = (SlidePart)presPart.GetPartById(ThirdTable);
+                SlidePart tableSlidePartforTable3 = (SlidePart)presPart.GetPartById(ThirdTable);
+
+                /*
+                var PendingITReviewQuery = db.ProjectInitiatives.Select(p => new
+                {
+                    Status = p.StatusManual,
+                    Name = p.ProjectName,
+                    ProgramEntity = p.Program,
+                    Description = p.ShortDescription,
+                    CustomerComment = p.StatusManualComment
+                });
+                */
+                string[] OrgItems = {"NGA-TS","NGIDS"};
+
+                var PendingITReviewQuery = from p in db.ProjectInitiatives
+                                           where p.StatusManual.Length > 2
+                                           && OrgItems.Contains(p.Organization) // added condition for TS
+                                           orderby p.StatusManual, p.Program, p.Modified descending
+                                           select new
+                                           {
+                                               
+                                               Status = p.StatusManual.Substring(0, 150),
+                                               Name = p.ProjectName.Substring(0, 150),
+                                               ProgramEntity = p.Program.Substring(0, 150),
+                                               Description = p.ShortDescription.Substring(0, 150),
+                                               CustomerComment = p.StatusManualComment.Substring(0, 150),
+
+                                           };
+
+                section = "";
+                current = null;
+                int countertest = 0;
+                int endSlideNo = 0;
+                int SlideSize = 0;
+                long totalHeight = 0;
+
+                foreach (var PendingITReview in PendingITReviewQuery)
+                {
+                    //string formStatus = PendingITReview.Status;
+                    string ProjectName = PendingITReview.Name.Trim().Replace("\r", "").Replace("\n", "");
+                    string Program = PendingITReview.ProgramEntity.Trim().Replace("\r", "").Replace("\n", "");
+                    string ShortDescription = PendingITReview.Description.Trim().Replace("\r", "").Replace("\n", "");
+                    string StatusManualComment = PendingITReview.CustomerComment;
+                    //string StatusManualComment = PendingITReview.CustomerComment.Where(v => !(PendingITReview.CustomerComment == null || PendingITReview.CustomerComment.Trim() == string.Empty)).Replace("\r", "").Replace("\n", "");
+                    string formStatus = PendingITReview.Status;
+                    
+                    
+                    if (section != formStatus)
+                    {
+                        
+
+                        //TEST
+                        // add a new slide by cloning the slide if said slide does not exist.
+                        SlidePart newSectionPart = CloneSlidePart(presPart, sectionSlidePartforTable3, "NewSection");
+                        //   SwapPlaceholderText(newSectionPart, "Section 1", Status);
+                        section = formStatus;
+                        overflow = true;
+
+
+                        // TEST
+                        // DeleteTemplateSlide(presPart, sectionSlidePartforTable3);
+
+
+                        // remove the extra template clone slides
+                        //SlideIdList slideIdList2 = presPart.Presentation.SlideIdList;
+
+
+
+                        /*
+                        if (countertest == 0)
+                        {
+                            SlideId slideoriginal = slideIdList2.ChildElements[maxSlide3] as SlideId;
+                            slideIdList2.RemoveChild(slideoriginal);
+                        }
+                           
+                        if (countertest == 1)
+                        {
+                            slideIdList2.RemoveChild(slideIdList2.ChildElements[4] as SlideId);
+                            endSlideNo = maxSlide3;
+                        }
+                          */
+
+                        /*
+                        if (countertest > 1)
+                        {
+                            newatgreaterone = (maxSlide3 - endSlideNo);
+                            // if (slideIdList2.Count() < maxSlide3)
+                            //    slideIdList2.RemoveChild(slideIdList2.ChildElements[newatgreaterone] as SlideId);
+                            // slideIdList2.RemoveChild(slideIdList2.ChildElements[5] as SlideId);
+
+                        }
+                        */
+
+                        //SlideIdList slideIdList4 = presPart.Presentation.SlideIdList;
+                        //int endSlideNo = slideIdList4.Count();
+                        /*
+                        if (countertest == 2)
+                        {
+                            int slideincrease = (maxSlide3 - endSlideNo);
+                            SlideSize = slideincrease + 5;
+
+                            slideIdList2.RemoveChild(slideIdList2.ChildElements[SlideSize] as SlideId);
+                        }
+
+                        if (countertest > 2)
+                        {
+                            int slideincrease2 = (maxSlide3 - endSlideNo);
+                            SlideSize += slideincrease2;
+
+                            slideIdList2.RemoveChild(slideIdList2.ChildElements[SlideSize] as SlideId);
+                        }
+                        */
+
+                        // lets test this NAWEESH
+                        //SlideDeletion(presPart, 1);
+                        
+                        countertest++;
+
+
+                        //TEST
+                        /*
+                        DeleteTemplateSlide(presPart, sectionSlidePartforTable3, "rId5");
+                        DeleteTemplateSlide(presPart, tableSlidePartforTable3, "rId4");
+                        */
+                        
+                    }
+
+                    // if the products do not fit in the table then we need to clone table into 
+                    // a new slide
+                    if (overflow)
+                    {
+                        SlidePart newTablePart = CloneSlidePart(presPart, tableSlidePartforTable3, "NotSection");
+                        // SwapPlaceholderText(newTablePart, "TEST123", string.Concat("Project Initiative Request Status - ", section));
+                        SwapPlaceholderText(newTablePart, "TEST123", section);
+                        current = newTablePart;
+                        overflow = false;
+                        totalHeight = 0;
+
+                    }
+
+
+                    // find the table to add a new row, in this case we are looking for the first table, as we only have one table.
+                    // A.Table tbl = current.Slide.Descendants<A.Table>().First();
+                    A.Table tbl = current.Slide.Descendants<A.Table>().First();
+                    // create a new row
+                    A.TableRow tr = new A.TableRow();
+                    // specify height of row
+                    // tr.Height = heightInEmu;    // looks like we haven't specified the height
+                    tr.Height = 250L;
+
+                    // then we create five cells for the row
+                    //tr.Append(CreateDrawingCell(imageRel + imageRelId));
+                    tr.Append(CreateTextCell(ProjectName));   
+                    tr.Append(CreateTextCell(Program));
+                    tr.Append(CreateTextCell(ShortDescription));
+                    tr.Append(CreateTextCell(StatusManualComment));
+
+
+                    // append the row to the table, a row to be appended for every product.  
+                    tbl.Append(tr);
+                    //imageRelId++;
+
+                    totalHeight += tr.Height;
+
+                    
+                    if (totalHeight > pageBorder)
+                        overflow = true;
+
+
+
+                    
+
+                }
+
+
+                //TEST 
+
+               // DeleteTemplateSlide(presPart, sectionSlidePartforTable3, "rId1");
+                // lets replace with a one time max slide removal.
+                SlideDeletion(presPart, 1);
+                SlideDeletion(presPart, 1);
+
+               // DeleteTemplateSlide(presPart, sectionSlidePartforTable3, "rId14");
+                //DeleteTemplateSlide(presPart, tableSlidePartforTable3, ThirdTable);
+
+                
+           
+                
+
+                /*
+                foreach (SlideId slideId in slideIdList2.ChildElements)
+                {
+                    if (slideId.RelationshipId.Value.Equals(slideRelId2))
+                        slideIdList2.RemoveChild(slideId);
+                }
+                */
+
+                SlideIdList slideIdList2 = presPart.Presentation.SlideIdList;
+
+                // TEST
+               // SlidePart slidePartToRemove = presPart.GetPartById("newSlide1") as SlidePart;
+                //presPart.DeletePart(slidePartToRemove);
+
+
+                // Find and get all the placeholder text locations
+                // List<A.Text> textList = sectionSlidePartforTable3.Slide.Descendants<A.Text>().Where(t => t.Text.Equals("TEST123")).ToList();
+                // List<A.Text> textList = sectionSlidePartforTable3.Slide.Descendants<A.Text>().Where(t => t.Text.Equals("TEST123")).ToList();
+                // Swap the placeholder text with other text
+                // foreach (A.Text text in textList)
+                //    text.Text = value;
+
+
+                /*
+
+                var Slides = presPart.SlideParts.Where(
+                    (s) => (s.Slide.CommonSlideData.InnerText.Contains("TEST124")));
+
+                foreach (var item in Slides)
+                {
+                    item.relat
+                }
+                */
+
+            }
+
+            
+
+
+
+        }
+        
+
+            // below is the methods being called from the main class, static methods are shared across all instances of a class. So we have defined all methods
+            //  as static so it is shared across the one Main method in this class. 
+            
+
+            static SlidePart CloneSlidePart(PresentationPart presentationPart, SlidePart slideTemplate, string TypeofClone)
+            {
+            
+
+            // Create a new slide part in the presentation
+            SlidePart newSlidePart = presentationPart.AddNewPart<SlidePart>("newSlide" + index);
+                index++;
+                // Add the slide template content into the new slide
+                newSlidePart.FeedData(slideTemplate.GetStream(FileMode.Open));
+                // make sure the new slide references the proper slide layout
+                newSlidePart.AddPart(slideTemplate.SlideLayoutPart);
+
+                // Get the list of slide ids
+                SlideIdList slideIdList = presentationPart.Presentation.SlideIdList;
+
+                // Figure out where to add the next slide (find max slide)
+
+                uint maxSlideId = 1;
+
+                SlideId prevSlideId = null;
+
+                foreach (SlideId slideId in slideIdList.ChildElements)
+                {
+                    if (slideId.Id > maxSlideId)
+                    {
+                        maxSlideId = slideId.Id;
+                        prevSlideId = slideId;
+                    }
+                }
+
+                
+            //TEST
+            // lets remove the relationship from here
+            /*
+            uint prevIdCon2 = 1;
+            prevIdCon2 = maxSlideId;
+            int prevIdCon = Convert.ToInt32(prevIdCon2)- 1;
+            */
+            /*
+            if (string.Equals(TypeofClone, "NewSection"))
+            {
+                SlideId slideId2 = slideIdList.ChildElements[slideId.Id] as SlideId;
+                string slideRelId = slideId2.RelationshipId;
+            }
+            */
+
+
+            maxSlideId++;
+
+                // Add new slide at the end of the deck
+
+                SlideId newSlideId = slideIdList.InsertAfter(new SlideId(), prevSlideId);
+
+            
+
+            //    slideIdList.RemoveChild(prevSlideId);
+            //presentationPart.GetIdOfPart(newSlidePart);
+
+            //newSlideId.RelationshipId = presentationPart.GetIdOfPart(prevSlideId);
+
+            // SlideId slideid3 = slideIdList.RemoveChild(prevSlideId);
+            //if (string.Equals(TypeofClone, "NewSection"))
+            //   SlideDeletion(presentationPart, 2);
+
+            //    slideIdList.RemoveChild(prevSlideId);
+
+
+            /*
+            // TEST
+            int slideIndex = 2;
+            int reverseSlideIndex = slideIdList.Count() - slideIndex;
+            SlideId slideId2 = slideIdList.ChildElements[reverseSlideIndex] as SlideId;
+            //if ((string.Equals(TypeofClone, "NewSection")) && prevIdCon >= 1)
+            if (string.Equals(TypeofClone, "NewSection"))
+            slideIdList.RemoveChild(slideId2);
+            //SlideDeletion(presentationPart, 1);
+            */
+
+
+            // Make sure id and relid is set appropriately
+
+            newSlideId.Id = maxSlideId;
+                newSlideId.RelationshipId = presentationPart.GetIdOfPart(newSlidePart);
+
+            /*
+            if ((string.Equals(TypeofClone, "NewSection")) && prevIdCon >= 1)
+                // slideIdList.RemoveChild(prevSlideId);
+                slideIdList.RemoveChild(slideIdList.ChildElements[prevIdCon] as SlideId);
+            */
+
+            /*
+            //TEST
+            if ((string.Equals(TypeofClone, "NewSection")))
+            // Get the list of slide ids
+            {
+                SlidePart slidePartToRemove = presentationPart.GetPartById("newSlide1") as SlidePart;
+                presentationPart.DeletePart(slidePartToRemove);
+            }
+            */
+
+            
+
+
+
+            return newSlidePart;
+
+            }
+
+        
+            static void SwapPlaceholderText(SlidePart slidePart, string placeholder, string value)
+            {
+                // Find and get all the placeholder text locations
+                List<A.Text> textList = slidePart.Slide.Descendants<A.Text>().Where(t => t.Text.Equals(placeholder)).ToList();
+                // Swap the placeholder text with other text
+                foreach (A.Text text in textList)
+                    text.Text = value;
+            }
+
+
+        /*
+
+        public static DeleteByPlaceHolder(SlidePart slidePart, string placeholder, string value)
+        {
+            // Find and get all the placeholder text locations
+            List<A.Text> textList = slidePart.Parts.
+               // .Descendants<A.Text>().Where(t => t.Text.Equals(placeholder)).ToList();
+            // Swap the placeholder text with other text
+            foreach (A.)
+
+            foreach (A.Text text in textList)
+                text.Text = value;
+        }
+
+        */
+        /*
+        static void DeleteTemplateSlide(PresentationPart presentationPart, SlidePart slideTemplate)
+        {
+            // Get the list of slide ids
+            SlideIdList slideIdList = presentationPart.Presentation.SlideIdList;
+            // Delete the template slide reference
+            foreach (SlideId slideId in slideIdList.ChildElements)
+            {
+                if (slideId.RelationshipId.Value.Equals("rId1"))
+                    slideIdList.RemoveChild(slideId);
+            }
+
+            // Delete the template slide
+            //presentationPart.DeletePart(slideTemplate);
+
+        }
+        */
+            /*
+                static void DeleteTemplateSlide(PresentationPart presentationPart, SlidePart slideTemplate)
+                {
+                    // Get the list of slide ids
+                    SlideIdList slideIdList = presentationPart.Presentation.SlideIdList;
+                    // Delete the template slide reference
+                    foreach (SlideId slideId in slideIdList.ChildElements)
+                    {
+                        if (slideId.RelationshipId.Value.Equals("rId1"))
+                            slideIdList.RemoveChild(slideId);
+                    }
+                    // Delete the template slide
+                    presentationPart.DeletePart(slideTemplate);
+                }
+            */
+            /*
+            static void DeleteTest( PresentationPart presentationPart)
+        {
+            // Get the list of slide ids
+            SlideIdList slideIdList = presentationPart.Presentation.SlideIdList;
+            // Delete the template slide reference
+            foreach (SlideId slideId in slideIdList.ChildElements)
+            {
+                if (slideId.RelationshipId.Value.Equals("newSlide1"))
+                    slideIdList.RemoveChild(slideId);
+            }
+
+        }
+        */
+
+            public static string SlideRelationShipId (PresentationPart presentationPart, int slideIndex)
+        {
+            Presentation presentation = presentationPart.Presentation;
+            SlideIdList slideIdList = presentation.SlideIdList;
+            SlideId slideId = slideIdList.ChildElements[slideIndex] as SlideId;
+            string slideRelId = slideId.RelationshipId;
+            return slideRelId;
+        }
+
+            public static void SlideDeletion(PresentationPart presentationPart, int slideIndex)
+            {
+                // Get the presentation from the presentation part.
+                Presentation presentation = presentationPart.Presentation;
+
+                // Get the list of slide IDs in the presentation.
+                SlideIdList slideIdList = presentation.SlideIdList;
+
+                // Get the value of the slide from the reverse
+                int reverseSlideIndex = slideIdList.Count() - slideIndex;
+
+                // Get the slide ID of the specified slide
+                SlideId slideId = slideIdList.ChildElements[reverseSlideIndex] as SlideId;
+            
+                // Get the relationship ID of the slide.
+                //string slideRelId = slideId.RelationshipId;
+            
+
+                // Remove the slide from the slide list.
+                slideIdList.RemoveChild(slideId);
+            }
+
+        
+            public static void DeleteTemplateSlide(PresentationPart presentationPart, SlidePart slideTemplate, string relationshipID)
+            {
+                Presentation presentation = presentationPart.Presentation;
+                SlideIdList slideIdList = presentation.SlideIdList;
+
+                foreach (SlideId slideId in slideIdList.ChildElements)
+                {
+                    if (slideId.RelationshipId.Value.Equals(relationshipID))
+                        slideIdList.RemoveChild(slideId);
+                }
+                // Delete the template slide
+                presentationPart.DeletePart(slideTemplate);
+            }
+
+
+        // Creates specific text cell with specific text that is justified in the middle using an anchor
+        static A.TableCell CreateTextCell2(string text)
+            {
+
+
+
+
+            A.TableCell tc = new A.TableCell(
+                                        new A.TextBody(
+                                            new A.BodyProperties(),
+                                        new A.Paragraph(
+                                            new A.Run(
+                                                new A.RunProperties()
+                                                {
+                                                    Language = "en-US",
+                                                    FontSize = 630,
+                                                    Dirty = false
+                                                },
+                                                new A.Text(text)))),
+                                        new A.TableCellProperties()
+                                        {
+                                            AnchorCenter = true
+                                        }
+                                        );
+
+            return tc;
+
+        }
+
+        // Creates specific text cell with specific text
+        static A.TableCell CreateTextCell(string text)
+            {
+            A.TableCell tc = new A.TableCell(
+                                new A.TextBody(
+                                    new A.BodyProperties(),
+                                new A.Paragraph(
+                                    new A.Run(
+                                        new A.RunProperties()
+                                        {
+                                            Language = "en-US",
+                                            FontSize = 630,
+                                            Dirty = false
+                                        },
+                                        new A.Text(text)))),
+                                new A.TableCellProperties());
+
+            return tc;
+
+            }
+        
+
+
+
+        /*
+    A.TableCell tc = new A.TableCell(
+                                new A.TextBody(
+                                    new A.BodyProperties(),
+                                new A.Paragraph(
+                                    new A.Run(
+                                        new A.RunProperties()
+                                        {
+                                            Language = "en-US",
+                                            FontSize = 630,
+                                            Dirty = false
+                                        },
+                                        new A.Text(text)))),
+                                new A.TableCellProperties());
+        */
+
+
+
+
+        //    return tc;
+
+        //}
+
+
+        public static string GetFormattedDate(DateTime DateInput)
+        {
+                DateTime dateFormatted = DateTime.Parse(DateInput.ToString());
+                string suffix;
+                switch (dateFormatted.Day)
+                {
+                    case 1:
+                    case 21:
+                    case 31:
+                        suffix = "st";
+                        break;
+                    case 2:
+                    case 22:
+                        suffix = "nd";
+                        break;
+                    case 3:
+                    case 23:
+                        suffix = "rd";
+                        break;
+                    default:
+                        suffix = "th";
+                        break;
+                }
+            //string GetdateFormatted = dateFormatted.ToString("dd\"" + suffix + "\" MMM, yyyy hh:mm");
+            string GetdateFormatted = dateFormatted.ToString("dd\"" + suffix + "\" MMM, yyyy");
+
+            return GetdateFormatted;
+        }
+
+
+
+
+
+        /*
+            public static DataTable GetDataTable(string connectionString, string queryString)
+            {
+                using (SqlConnection connection = new SqlConnection("Data Source=[RSSX25-AP0047];Initial Catalog=[ODS];User Id='reportuser';Password='DogPotatoAppleLegChair';"))
+                {
+                    connection.Open();
+
+                    using (SqlDataAdapter da = new SqlDataAdapter(queryString, connection))
+                    {
+                        da.SelectCommand.CommandTimeout = 120;
+                        DataSet ds = new DataSet();
+                        da.Fill(ds);
+
+                        return ds.Tables[0];
+                    }
+                }
+            }
+
+        */
+
+
+    }
+}
+
