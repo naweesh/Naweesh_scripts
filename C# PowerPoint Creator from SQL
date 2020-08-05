@@ -1,4 +1,8 @@
-/* This was my first C# script that was more then a simple console script or SSIS script task */
+/* This was my first C# script that was more then a simple console script or SSIS script task 
+when i reflect on this i know it wasn't written as well as i would now, firstly would move some
+of the items to another class and reference back, and within that use private modifers and expose
+via a relevent public method, that is break my methods down so its cleaner and less lines.
+*/
 
 using System;
 using System.Linq;
